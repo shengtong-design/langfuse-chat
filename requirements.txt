@@ -3,3 +3,4 @@ crewai[tools]
 langfuse
 openai
 python-dotenv
+chromadb==0.4.24
