@@ -4,3 +4,4 @@ langfuse
 openai
 python-dotenv
 chromadb==1.1.1
+pydantic==2.11.7
