@@ -1,6 +1,6 @@
 streamlit
-crewai[tools]
+crewai
 langfuse
 openai
 python-dotenv
-chromadb==0.4.24
+chromadb==0.5.23
