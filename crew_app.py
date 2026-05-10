@@ -22,7 +22,6 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
-os.environ.setdefault("CREWAI_STORAGE_DIR", "/tmp/crewai")
 
 try:
     from dotenv import load_dotenv
