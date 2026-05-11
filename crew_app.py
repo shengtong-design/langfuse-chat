@@ -52,7 +52,7 @@ def _init_datadog_llmobs() -> bool:
         from ddtrace.llmobs import LLMObs
 
         agentless = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
-        integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+        integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "false").strip().lower() not in ("0", "false", "no")
         LLMObs.enable(
             ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
             api_key=os.getenv("DD_API_KEY"),
