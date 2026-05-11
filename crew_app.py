@@ -10,7 +10,17 @@ LLM provider for CrewAI (example):
   - OPENAI_API_KEY=...
 
 Install deps:
-  - py -3.12 -m pip install streamlit crewai langfuse
+  - py -3.12 -m pip install streamlit crewai langfuse ddtrace python-dotenv
+
+Datadog LLM Observability (optional): set e.g.
+  - DD_LLMOBS_ENABLED=1
+  - DD_LLMOBS_ML_APP=crew-streamlit
+  - DD_API_KEY=... (agentless)
+  - DD_SITE=datadoghq.com (or your site)
+  - DD_LLMOBS_AGENTLESS_ENABLED=1
+
+Alternatively run with: ddtrace-run py -3.12 -m streamlit run crew_app.py
+(do not combine ddtrace-run with LLMObs.enable() in code — use one or the other).
 
 Run:
   - py -3.12 -m streamlit run crew_app.py
@@ -35,7 +45,7 @@ import contextlib
 import io
 import platform
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 import streamlit as st
 
@@ -56,6 +66,95 @@ def get_langfuse() -> Any:
         secret_key=_require_env("LANGFUSE_SECRET_KEY"),
         base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
     )
+
+
+def _datadog_llmobs_env_enabled() -> bool:
+    return os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+@st.cache_resource
+def _ensure_datadog_llmobs_enabled() -> bool:
+    """
+    Enable Datadog LLM Observability when DD_LLMOBS_ENABLED is set.
+    Uses LLMObs.enable() for agentless/local runs. If you use ddtrace-run, skip in-code enable
+    (Datadog docs: do not use both).
+    """
+    if not _datadog_llmobs_env_enabled():
+        return False
+    if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
+        # User is using ddtrace-run or external init only.
+        return True
+    try:
+        from ddtrace.llmobs import LLMObs
+    except ModuleNotFoundError:
+        return False
+
+    agentless_raw = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower()
+    agentless_enabled = agentless_raw in ("1", "true", "yes", "on")
+
+    _integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower()
+    LLMObs.enable(
+        ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
+        api_key=os.getenv("DD_API_KEY"),
+        site=os.getenv("DD_SITE", "datadoghq.com"),
+        agentless_enabled=agentless_enabled,
+        env=os.getenv("DD_ENV"),
+        service=os.getenv("DD_SERVICE", "crew-streamlit"),
+        integrations_enabled=_integ not in ("0", "false", "no"),
+    )
+    return True
+
+
+@contextlib.contextmanager
+def _datadog_workflow(
+    question: str,
+    agent_spec: Dict[str, Any],
+    task_spec: Dict[str, Any],
+    runtime: Dict[str, str],
+) -> Iterator[None]:
+    if not _ensure_datadog_llmobs_enabled():
+        yield
+        return
+    try:
+        from ddtrace.llmobs import LLMObs
+    except ModuleNotFoundError:
+        yield
+        return
+
+    wf_kwargs: Dict[str, Any] = {"name": "crewai.research"}
+    session_id = os.getenv("DD_LLMOBS_SESSION_ID", "").strip()
+    if session_id:
+        wf_kwargs["session_id"] = session_id
+    ml_app = os.getenv("DD_LLMOBS_ML_APP", "").strip()
+    if ml_app:
+        wf_kwargs["ml_app"] = ml_app
+
+    with LLMObs.workflow(**wf_kwargs):
+        LLMObs.annotate(
+            input_data={
+                "question": question,
+                "agents": [agent_spec],
+                "tasks": [task_spec],
+                "runtime": runtime,
+            },
+            metadata={"framework": "crewai", "app": "streamlit", "observability": "datadog_llmobs"},
+        )
+        yield
+
+
+@contextlib.contextmanager
+def _datadog_kickoff_task() -> Iterator[None]:
+    if not _ensure_datadog_llmobs_enabled():
+        yield
+        return
+    try:
+        from ddtrace.llmobs import LLMObs
+    except ModuleNotFoundError:
+        yield
+        return
+
+    with LLMObs.task(name="crew.kickoff"):
+        yield
 
 
 def run_research(question: str, langfuse: Any) -> Dict[str, str]:
@@ -98,37 +197,76 @@ def run_research(question: str, langfuse: Any) -> Dict[str, str]:
         "platform": platform.platform(),
     }
 
-    with langfuse.start_as_current_observation(
-        name="crewai.research",
-        as_type="chain",
-        input={"question": question, "crew": {"agents": [agent_spec], "tasks": [task_spec]}, "runtime": runtime},
-        metadata={"framework": "crewai", "app": "streamlit"},
-    ) as root:
-        with root.start_as_current_observation(
-            name="crew.kickoff",
-            as_type="span",
-            input={"question": question, "agents": [agent_spec], "tasks": [task_spec]},
-            metadata={"crew_verbose": True},
-        ) as kickoff:
-            try:
-                with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                    result = crew.kickoff()
-                output = str(result)
-                kickoff.update(output={"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()})
-                root.update(output={"result": output})
-                return {"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
-            except Exception as e:
-                kickoff.update(
-                    output={"error": repr(e), "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()},
-                    level="ERROR",
-                )
-                root.update(output={"error": repr(e)}, level="ERROR")
-                raise
-            finally:
-                try:
-                    langfuse.flush()
-                except Exception:
-                    pass
+    with _datadog_workflow(question, agent_spec, task_spec, runtime):
+        with langfuse.start_as_current_observation(
+            name="crewai.research",
+            as_type="chain",
+            input={"question": question, "crew": {"agents": [agent_spec], "tasks": [task_spec]}, "runtime": runtime},
+            metadata={"framework": "crewai", "app": "streamlit"},
+        ) as root:
+            with root.start_as_current_observation(
+                name="crew.kickoff",
+                as_type="span",
+                input={"question": question, "agents": [agent_spec], "tasks": [task_spec]},
+                metadata={"crew_verbose": True},
+            ) as kickoff:
+                with _datadog_kickoff_task():
+                    try:
+                        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                            result = crew.kickoff()
+                        output = str(result)
+                        kickoff.update(
+                            output={"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
+                        )
+                        root.update(output={"result": output})
+                        if _ensure_datadog_llmobs_enabled():
+                            try:
+                                from ddtrace.llmobs import LLMObs
+
+                                LLMObs.annotate(
+                                    output_data={
+                                        "result": output,
+                                        "stdout": stdout_buf.getvalue(),
+                                        "stderr": stderr_buf.getvalue(),
+                                    },
+                                    metadata={"crew_verbose": True},
+                                )
+                            except Exception:
+                                pass
+                        return {"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
+                    except Exception as e:
+                        kickoff.update(
+                            output={"error": repr(e), "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()},
+                            level="ERROR",
+                        )
+                        root.update(output={"error": repr(e)}, level="ERROR")
+                        if _ensure_datadog_llmobs_enabled():
+                            try:
+                                from ddtrace.llmobs import LLMObs
+
+                                LLMObs.annotate(
+                                    output_data={
+                                        "error": repr(e),
+                                        "stdout": stdout_buf.getvalue(),
+                                        "stderr": stderr_buf.getvalue(),
+                                    },
+                                    metadata={"status": "error"},
+                                )
+                            except Exception:
+                                pass
+                        raise
+                    finally:
+                        try:
+                            langfuse.flush()
+                        except Exception:
+                            pass
+                        if _ensure_datadog_llmobs_enabled():
+                            try:
+                                from ddtrace.llmobs import LLMObs
+
+                                LLMObs.flush()
+                            except Exception:
+                                pass
 
 
 st.set_page_config(page_title="CrewAI + Langfuse Research", layout="wide")

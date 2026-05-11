@@ -3,4 +3,5 @@ crewai==1.14.4
 langfuse
 openai
 python-dotenv
+ddtrace
 chromadb==1.1.1
