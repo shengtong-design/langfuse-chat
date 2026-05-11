@@ -49,6 +49,11 @@ def _init_datadog_llmobs() -> bool:
     if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
         return True  # ddtrace-run handles init externally
     try:
+        # Disable APM tracing before importing ddtrace — LLMObs agentless mode
+        # sends spans directly to Datadog's API and doesn't need the APM tracer.
+        # Without this, ddtrace emits "datadog context not present in ASGI request
+        # scope" on every Streamlit request because Uvicorn lacks ddtrace middleware.
+        os.environ.setdefault("DD_TRACE_ENABLED", "0")
         from ddtrace.llmobs import LLMObs
 
         agentless = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
