@@ -41,6 +41,34 @@ except ModuleNotFoundError:
     # App can still run if env vars are set outside a .env file.
     pass
 
+
+def _init_datadog_llmobs() -> bool:
+    """Enable Datadog LLMObs as early as possible, before any OTel-using imports."""
+    if os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
+        return False
+    if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
+        return True  # ddtrace-run handles init externally
+    try:
+        from ddtrace.llmobs import LLMObs
+
+        agentless = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+        integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+        LLMObs.enable(
+            ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
+            api_key=os.getenv("DD_API_KEY"),
+            site=os.getenv("DD_SITE", "datadoghq.com"),
+            agentless_enabled=agentless,
+            env=os.getenv("DD_ENV"),
+            service=os.getenv("DD_SERVICE", "crew-streamlit"),
+            integrations_enabled=integ,
+        )
+        return True
+    except ModuleNotFoundError:
+        return False
+
+
+_DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
+
 import contextlib
 import io
 import platform
@@ -68,41 +96,8 @@ def get_langfuse() -> Any:
     )
 
 
-def _datadog_llmobs_env_enabled() -> bool:
-    return os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
-
-
-@st.cache_resource
 def _ensure_datadog_llmobs_enabled() -> bool:
-    """
-    Enable Datadog LLM Observability when DD_LLMOBS_ENABLED is set.
-    Uses LLMObs.enable() for agentless/local runs. If you use ddtrace-run, skip in-code enable
-    (Datadog docs: do not use both).
-    """
-    if not _datadog_llmobs_env_enabled():
-        return False
-    if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
-        # User is using ddtrace-run or external init only.
-        return True
-    try:
-        from ddtrace.llmobs import LLMObs
-    except ModuleNotFoundError:
-        return False
-
-    agentless_raw = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower()
-    agentless_enabled = agentless_raw in ("1", "true", "yes", "on")
-
-    _integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower()
-    LLMObs.enable(
-        ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
-        api_key=os.getenv("DD_API_KEY"),
-        site=os.getenv("DD_SITE", "datadoghq.com"),
-        agentless_enabled=agentless_enabled,
-        env=os.getenv("DD_ENV"),
-        service=os.getenv("DD_SERVICE", "crew-streamlit"),
-        integrations_enabled=_integ not in ("0", "false", "no"),
-    )
-    return True
+    return _DD_LLMOBS_ACTIVE
 
 
 @contextlib.contextmanager
@@ -268,10 +263,6 @@ def run_research(question: str, langfuse: Any) -> Dict[str, str]:
                             except Exception:
                                 pass
 
-
-# Initialize Datadog LLMObs at module level so it claims the OTel TracerProvider
-# before Langfuse initializes — avoids "Overriding of current TracerProvider is not allowed".
-_ensure_datadog_llmobs_enabled()
 
 st.set_page_config(page_title="CrewAI + Langfuse Research", layout="wide")
 st.title("CrewAI Researcher (traced to Langfuse)")
