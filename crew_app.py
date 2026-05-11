@@ -269,6 +269,10 @@ def run_research(question: str, langfuse: Any) -> Dict[str, str]:
                                 pass
 
 
+# Initialize Datadog LLMObs at module level so it claims the OTel TracerProvider
+# before Langfuse initializes — avoids "Overriding of current TracerProvider is not allowed".
+_ensure_datadog_llmobs_enabled()
+
 st.set_page_config(page_title="CrewAI + Langfuse Research", layout="wide")
 st.title("CrewAI Researcher (traced to Langfuse)")
 
