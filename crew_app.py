@@ -103,7 +103,7 @@ def _get_connectors() -> ConnectorManager:
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="CrewAI Runner", layout="wide")
-st.title("CrewAI Multi-Crew Runner")
+st.title("Revio Multi-Crew Runner")
 
 tab_research, tab_fitness, tab_experiment = st.tabs(["Research", "Fitness Training", "Experiments"])
 
