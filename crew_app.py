@@ -1,71 +1,62 @@
 """
-Streamlit app: run a CrewAI Researcher on a question and log to Langfuse (SDK v4).
+Streamlit app: multi-crew runner with modular observability.
+
+Crews (crews/):
+  - researcher        General Q&A research
+  - fitness_training  Personalized fitness plan (analysis + workout + nutrition)
+
+Observability connectors (observability/):
+  - Langfuse   always active when LANGFUSE_PUBLIC_KEY is set
+  - Datadog    active when DD_LLMOBS_ENABLED=1
+
+To add a new connector: create observability/<name>.py, subclass BaseConnector,
+add an instance to _get_connectors() below.
+
+To add a new crew: create crews/<name>.py, subclass BaseCrew,
+add it to crews/__init__.py CREWS dict.
 
 Required env vars:
-  - LANGFUSE_PUBLIC_KEY=...
-  - LANGFUSE_SECRET_KEY=...
-  - LANGFUSE_BASE_URL=https://cloud.langfuse.com  (or your self-hosted base url)
+  - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
+  - OPENAI_API_KEY
 
-LLM provider for CrewAI (example):
-  - OPENAI_API_KEY=...
-
-Install deps:
-  - py -3.12 -m pip install streamlit crewai langfuse ddtrace python-dotenv
-
-Datadog LLM Observability (optional): set e.g.
+Datadog (optional):
   - DD_LLMOBS_ENABLED=1
-  - DD_LLMOBS_ML_APP=crew-streamlit
-  - DD_API_KEY=... (agentless)
-  - DD_SITE=datadoghq.com (or your site)
-  - DD_LLMOBS_AGENTLESS_ENABLED=1
-
-Alternatively run with: ddtrace-run py -3.12 -m streamlit run crew_app.py
-(do not combine ddtrace-run with LLMObs.enable() in code — use one or the other).
+  - DD_API_KEY, DD_SITE, DD_LLMOBS_ML_APP, DD_LLMOBS_AGENTLESS_ENABLED=1
 
 Run:
-  - py -3.12 -m streamlit run crew_app.py
+  py -3.12 -m streamlit run crew_app.py
 """
 
 from __future__ import annotations
 
-# Keep CrewAI from initializing its own telemetry.
 import os
 
 os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
 
 try:
     from dotenv import load_dotenv
-
     load_dotenv()
 except ModuleNotFoundError:
-    # App can still run if env vars are set outside a .env file.
     pass
 
 
 def _init_datadog_llmobs() -> bool:
-    """Enable Datadog LLMObs as early as possible, before any OTel-using imports."""
+    """Enable Datadog LLMObs before any OTel-using imports claim the TracerProvider."""
     if os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
         return False
     if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
         return True  # ddtrace-run handles init externally
     try:
-        # Disable APM tracing before importing ddtrace — LLMObs agentless mode
-        # sends spans directly to Datadog's API and doesn't need the APM tracer.
-        # Without this, ddtrace emits "datadog context not present in ASGI request
-        # scope" on every Streamlit request because Uvicorn lacks ddtrace middleware.
         os.environ.setdefault("DD_TRACE_ENABLED", "0")
         from ddtrace.llmobs import LLMObs
-
-        agentless = os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
-        integ = os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "false").strip().lower() not in ("0", "false", "no")
         LLMObs.enable(
             ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
             api_key=os.getenv("DD_API_KEY"),
             site=os.getenv("DD_SITE", "datadoghq.com"),
-            agentless_enabled=agentless,
+            agentless_enabled=os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on"),
             env=os.getenv("DD_ENV"),
             service=os.getenv("DD_SERVICE", "crew-streamlit"),
-            integrations_enabled=integ,
+            integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "false").strip().lower() not in ("0", "false", "no"),
         )
         return True
     except ModuleNotFoundError:
@@ -74,13 +65,12 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
-import contextlib
-import io
-import platform
-import sys
-from typing import Any, Dict, Iterator
-
 import streamlit as st
+
+from crews import CREWS
+from observability import ConnectorManager
+from observability.datadog_connector import DatadogConnector
+from observability.langfuse_connector import LangfuseConnector
 
 
 def _require_env(name: str) -> str:
@@ -91,9 +81,8 @@ def _require_env(name: str) -> str:
 
 
 @st.cache_resource
-def get_langfuse() -> Any:
+def _get_langfuse():
     from langfuse import Langfuse
-
     return Langfuse(
         public_key=_require_env("LANGFUSE_PUBLIC_KEY"),
         secret_key=_require_env("LANGFUSE_SECRET_KEY"),
@@ -101,197 +90,95 @@ def get_langfuse() -> Any:
     )
 
 
-def _ensure_datadog_llmobs_enabled() -> bool:
-    return _DD_LLMOBS_ACTIVE
+def _get_connectors() -> ConnectorManager:
+    return ConnectorManager([
+        LangfuseConnector(_get_langfuse()),
+        DatadogConnector(_DD_LLMOBS_ACTIVE),
+    ])
 
 
-@contextlib.contextmanager
-def _datadog_workflow(
-    question: str,
-    agent_spec: Dict[str, Any],
-    task_spec: Dict[str, Any],
-    runtime: Dict[str, str],
-) -> Iterator[None]:
-    if not _ensure_datadog_llmobs_enabled():
-        yield
-        return
-    try:
-        from ddtrace.llmobs import LLMObs
-    except ModuleNotFoundError:
-        yield
-        return
+# ── UI ────────────────────────────────────────────────────────────────────────
 
-    wf_kwargs: Dict[str, Any] = {"name": "crewai.research"}
-    session_id = os.getenv("DD_LLMOBS_SESSION_ID", "").strip()
-    if session_id:
-        wf_kwargs["session_id"] = session_id
-    ml_app = os.getenv("DD_LLMOBS_ML_APP", "").strip()
-    if ml_app:
-        wf_kwargs["ml_app"] = ml_app
+st.set_page_config(page_title="CrewAI Runner", layout="wide")
+st.title("CrewAI Multi-Crew Runner")
 
-    with LLMObs.workflow(**wf_kwargs):
-        LLMObs.annotate(
-            input_data={
-                "question": question,
-                "agents": [agent_spec],
-                "tasks": [task_spec],
-                "runtime": runtime,
-            },
-            metadata={"framework": "crewai", "app": "streamlit", "observability": "datadog_llmobs"},
-        )
-        yield
+tab_research, tab_fitness = st.tabs(["Research", "Fitness Training"])
 
-
-@contextlib.contextmanager
-def _datadog_kickoff_task() -> Iterator[None]:
-    if not _ensure_datadog_llmobs_enabled():
-        yield
-        return
-    try:
-        from ddtrace.llmobs import LLMObs
-    except ModuleNotFoundError:
-        yield
-        return
-
-    with LLMObs.task(name="crew.kickoff"):
-        yield
-
-
-def run_research(question: str, langfuse: Any) -> Dict[str, str]:
-    from crewai import Agent, Crew, Task
-
-    agent_spec = {
-        "role": "Researcher",
-        "goal": "Research the user's question and answer clearly and accurately.",
-        "backstory": "You are a diligent researcher who writes concise, well-structured answers with examples.",
-        "verbose": True,
-        "allow_delegation": False,
-    }
-
-    task_spec = {
-        "description": f'Research the question: "{question}"',
-        "expected_output": "A clear, concise answer with key points and 1-3 examples if applicable.",
-    }
-
-    researcher = Agent(
-        role=agent_spec["role"],
-        goal=agent_spec["goal"],
-        backstory=agent_spec["backstory"],
-        verbose=agent_spec["verbose"],
-        allow_delegation=agent_spec["allow_delegation"],
+# ── Research ──────────────────────────────────────────────────────────────────
+with tab_research:
+    question = st.text_area(
+        "Research question",
+        placeholder='e.g. "What is AI?"',
+        height=120,
+        key="research_q",
+    )
+    research_btn = st.button(
+        "Run research",
+        type="primary",
+        disabled=not question.strip(),
+        key="research_btn",
     )
 
-    task = Task(
-        description=task_spec["description"],
-        expected_output=task_spec["expected_output"],
-        agent=researcher,
-    )
-
-    crew = Crew(agents=[researcher], tasks=[task], verbose=True)
-
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
-
-    runtime = {
-        "python": sys.version.split()[0],
-        "platform": platform.platform(),
-    }
-
-    with _datadog_workflow(question, agent_spec, task_spec, runtime):
-        with langfuse.start_as_current_observation(
-            name="crewai.research",
-            as_type="chain",
-            input={"question": question, "crew": {"agents": [agent_spec], "tasks": [task_spec]}, "runtime": runtime},
-            metadata={"framework": "crewai", "app": "streamlit"},
-        ) as root:
-            with root.start_as_current_observation(
-                name="crew.kickoff",
-                as_type="span",
-                input={"question": question, "agents": [agent_spec], "tasks": [task_spec]},
-                metadata={"crew_verbose": True},
-            ) as kickoff:
-                with _datadog_kickoff_task():
-                    try:
-                        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                            result = crew.kickoff()
-                        output = str(result)
-                        kickoff.update(
-                            output={"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
-                        )
-                        root.update(output={"result": output})
-                        if _ensure_datadog_llmobs_enabled():
-                            try:
-                                from ddtrace.llmobs import LLMObs
-
-                                LLMObs.annotate(
-                                    output_data={
-                                        "result": output,
-                                        "stdout": stdout_buf.getvalue(),
-                                        "stderr": stderr_buf.getvalue(),
-                                    },
-                                    metadata={"crew_verbose": True},
-                                )
-                            except Exception:
-                                pass
-                        return {"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
-                    except Exception as e:
-                        kickoff.update(
-                            output={"error": repr(e), "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()},
-                            level="ERROR",
-                        )
-                        root.update(output={"error": repr(e)}, level="ERROR")
-                        if _ensure_datadog_llmobs_enabled():
-                            try:
-                                from ddtrace.llmobs import LLMObs
-
-                                LLMObs.annotate(
-                                    output_data={
-                                        "error": repr(e),
-                                        "stdout": stdout_buf.getvalue(),
-                                        "stderr": stderr_buf.getvalue(),
-                                    },
-                                    metadata={"status": "error"},
-                                )
-                            except Exception:
-                                pass
-                        raise
-                    finally:
-                        try:
-                            langfuse.flush()
-                        except Exception:
-                            pass
-                        if _ensure_datadog_llmobs_enabled():
-                            try:
-                                from ddtrace.llmobs import LLMObs
-
-                                LLMObs.flush()
-                            except Exception:
-                                pass
-
-
-st.set_page_config(page_title="CrewAI + Langfuse Research", layout="wide")
-st.title("CrewAI Researcher (traced to Langfuse)")
-
-question = st.text_area("Research question", placeholder='e.g. "What is AI?"', height=120)
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    run_clicked = st.button("Run research", type="primary", disabled=not question.strip())
-
-if run_clicked:
-    try:
-        langfuse = get_langfuse()
-        with st.spinner("Running CrewAI..."):
-            data = run_research(question.strip(), langfuse)
-        st.subheader("Result")
-        st.write(data["result"])
-
-        with col2:
-            with st.expander("Captured stdout/stderr (logged to Langfuse)", expanded=False):
-                st.code(data["stdout"] or "", language="text")
-                if data["stderr"]:
-                    st.markdown("**stderr**")
+    if research_btn:
+        try:
+            obs = _get_connectors()
+            with st.spinner("Running researcher crew..."):
+                data = CREWS["researcher"]().run({"question": question.strip()}, obs)
+            obs.flush()
+            st.subheader("Result")
+            st.write(data["result"])
+            with st.expander("stdout / stderr", expanded=False):
+                st.code(data.get("stdout") or "", language="text")
+                if data.get("stderr"):
                     st.code(data["stderr"], language="text")
-    except Exception as e:
-        st.error(f"Failed: {e}")
+        except Exception as e:
+            st.error(f"Failed: {e}")
 
+# ── Fitness Training ──────────────────────────────────────────────────────────
+with tab_fitness:
+    with st.form("fitness_form"):
+        goals = st.text_input(
+            "Fitness goals",
+            placeholder='e.g. "Build muscle and improve overall strength"',
+        )
+        fitness_level = st.selectbox(
+            "Current fitness level",
+            ["beginner", "intermediate", "advanced"],
+        )
+        equipment = st.text_input(
+            "Available equipment",
+            placeholder='e.g. "Full gym access" or "Bodyweight only"',
+        )
+        time_per_week = st.slider("Hours available per week", min_value=1, max_value=20, value=5)
+        limitations = st.text_input(
+            "Limitations / injuries (optional)",
+            placeholder='e.g. "Minor lower back sensitivity"',
+        )
+        fitness_btn = st.form_submit_button("Generate fitness plan", type="primary")
+
+    if fitness_btn:
+        if not goals.strip() or not equipment.strip():
+            st.warning("Please fill in goals and available equipment.")
+        else:
+            try:
+                obs = _get_connectors()
+                with st.spinner("Generating your personalized fitness plan (3 agents)..."):
+                    data = CREWS["fitness_training"]().run(
+                        {
+                            "goals": goals.strip(),
+                            "fitness_level": fitness_level,
+                            "equipment": equipment.strip(),
+                            "time_per_week": time_per_week,
+                            "limitations": limitations.strip() or "None specified",
+                        },
+                        obs,
+                    )
+                obs.flush()
+                st.subheader("Your Personalized Fitness Plan")
+                st.markdown(data["result"])
+                with st.expander("stdout / stderr", expanded=False):
+                    st.code(data.get("stdout") or "", language="text")
+                    if data.get("stderr"):
+                        st.code(data["stderr"], language="text")
+            except Exception as e:
+                st.error(f"Failed: {e}")
