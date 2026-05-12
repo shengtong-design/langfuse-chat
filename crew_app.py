@@ -65,7 +65,10 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
+from datetime import datetime
+
 import streamlit as st
+from opentelemetry import trace
 
 from crews import CREWS
 from observability import ConnectorManager
@@ -102,7 +105,7 @@ def _get_connectors() -> ConnectorManager:
 st.set_page_config(page_title="CrewAI Runner", layout="wide")
 st.title("CrewAI Multi-Crew Runner")
 
-tab_research, tab_fitness = st.tabs(["Research", "Fitness Training"])
+tab_research, tab_fitness, tab_experiment = st.tabs(["Research", "Fitness Training", "Experiments"])
 
 # ── Research ──────────────────────────────────────────────────────────────────
 with tab_research:
@@ -180,5 +183,54 @@ with tab_fitness:
                     st.code(data.get("stdout") or "", language="text")
                     if data.get("stderr"):
                         st.code(data["stderr"], language="text")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+# ── Experiments ───────────────────────────────────────────────────────────────
+with tab_experiment:
+    st.caption("Runs the researcher crew against a Langfuse dataset and logs results for evaluation.")
+
+    with st.form("experiment_form"):
+        dataset_name = st.text_input("Dataset name", value="crew-research-eval")
+        experiment_prefix = st.text_input("Experiment name prefix", value="crewai-researcher-v1")
+        max_concurrency = st.slider("Max concurrency", min_value=1, max_value=5, value=1)
+        exp_btn = st.form_submit_button("Run experiment", type="primary")
+
+    if exp_btn:
+        if not dataset_name.strip():
+            st.warning("Please enter a dataset name.")
+        else:
+            experiment_name = f"{experiment_prefix.strip()}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            try:
+                langfuse_client = _get_langfuse()
+                dataset = langfuse_client.get_dataset(dataset_name.strip())
+                items = list(dataset.items)
+                st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
+
+                obs = _get_connectors()
+                crew = CREWS["researcher"]()
+
+                def _task(item):
+                    q = item.input
+                    if isinstance(q, dict):
+                        q = q.get("question") or q.get("query") or q.get("input") or str(q)
+                    q = str(q)
+                    trace.get_current_span().update_name(q)
+                    result = crew.run({"question": q}, obs)
+                    return result["result"]
+
+                with st.spinner(f"Running {len(items)} items — this may take a while..."):
+                    langfuse_client.run_experiment(
+                        name=experiment_name,
+                        run_name=experiment_name,
+                        data=items,
+                        task=_task,
+                        max_concurrency=max_concurrency,
+                        metadata={"framework": "crewai", "runner": "crew_app.py"},
+                    )
+
+                obs.flush()
+                st.success(f"Experiment **{experiment_name}** complete!")
+                st.caption(f"Check Langfuse → Datasets → {dataset_name} → Experiments")
             except Exception as e:
                 st.error(f"Failed: {e}")
