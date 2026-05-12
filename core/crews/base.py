@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
-    from observability import ConnectorManager
+    from core.observability import ConnectorManager
 
 
 class BaseCrew(ABC):

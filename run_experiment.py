@@ -25,9 +25,9 @@ load_dotenv()
 from opentelemetry import trace
 from langfuse import Langfuse
 
-from crews.researcher import ResearcherCrew
-from observability import ConnectorManager
-from observability.langfuse_connector import LangfuseConnector
+from core.crews.researcher import ResearcherCrew
+from core.observability import ConnectorManager
+from core.observability.langfuse_connector import LangfuseConnector
 
 langfuse = Langfuse(
     public_key=os.environ["LANGFUSE_PUBLIC_KEY"],

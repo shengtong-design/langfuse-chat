@@ -70,10 +70,10 @@ from datetime import datetime
 import streamlit as st
 from opentelemetry import trace
 
-from crews import CREWS
-from observability import ConnectorManager
-from observability.datadog_connector import DatadogConnector
-from observability.langfuse_connector import LangfuseConnector
+from core.crews import CREWS
+from core.observability import ConnectorManager
+from core.observability.datadog_connector import DatadogConnector
+from core.observability.langfuse_connector import LangfuseConnector
 
 
 def _require_env(name: str) -> str:
