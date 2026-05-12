@@ -1,19 +1,19 @@
 """
 Streamlit app: multi-crew runner with modular observability.
 
-Crews (crews/):
+Crews (core/crews/):
   - researcher        General Q&A research
   - fitness_training  Personalized fitness plan (analysis + workout + nutrition)
 
-Observability connectors (observability/):
+Observability connectors (core/observability/):
   - Langfuse   always active when LANGFUSE_PUBLIC_KEY is set
   - Datadog    active when DD_LLMOBS_ENABLED=1
 
-To add a new connector: create observability/<name>.py, subclass BaseConnector,
+To add a new connector: create core/observability/<name>.py, subclass BaseConnector,
 add an instance to _get_connectors() below.
 
-To add a new crew: create crews/<name>.py, subclass BaseCrew,
-add it to crews/__init__.py CREWS dict.
+To add a new crew: create core/crews/<name>.py, subclass BaseCrew,
+add it to core/crews/__init__.py CREWS dict.
 
 Required env vars:
   - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
@@ -190,18 +190,25 @@ with tab_fitness:
 with tab_experiment:
     st.caption("Runs the researcher crew against a Langfuse dataset and logs results for evaluation.")
 
+    if "experiment_running" not in st.session_state:
+        st.session_state.experiment_running = False
+
     with st.form("experiment_form"):
         dataset_name = st.text_input("Dataset name", value="crew-research-eval")
         experiment_prefix = st.text_input("Experiment name prefix", value="crewai-researcher-v1")
-        max_concurrency = st.slider("Max concurrency", min_value=1, max_value=5, value=1)
-        exp_btn = st.form_submit_button("Run experiment", type="primary")
+        exp_btn = st.form_submit_button(
+            "Experiment running..." if st.session_state.experiment_running else "Run experiment",
+            type="primary",
+            disabled=st.session_state.experiment_running,
+        )
 
-    if exp_btn:
+    if exp_btn and not st.session_state.experiment_running:
         if not dataset_name.strip():
             st.warning("Please enter a dataset name.")
         else:
             experiment_name = f"{experiment_prefix.strip()}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             try:
+                st.session_state.experiment_running = True
                 langfuse_client = _get_langfuse()
                 dataset = langfuse_client.get_dataset(dataset_name.strip())
                 items = list(dataset.items)
@@ -225,7 +232,7 @@ with tab_experiment:
                         run_name=experiment_name,
                         data=items,
                         task=_task,
-                        max_concurrency=max_concurrency,
+                        max_concurrency=1,
                         metadata={"framework": "crewai", "runner": "crew_app.py"},
                     )
 
@@ -234,3 +241,5 @@ with tab_experiment:
                 st.caption(f"Check Langfuse → Datasets → {dataset_name} → Experiments")
             except Exception as e:
                 st.error(f"Failed: {e}")
+            finally:
+                st.session_state.experiment_running = False
