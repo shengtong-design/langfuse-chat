@@ -26,6 +26,7 @@ Run:
 
 from __future__ import annotations
 
+import logging
 import os
 
 os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
@@ -35,6 +36,11 @@ try:
     load_dotenv()
 except ModuleNotFoundError:
     pass
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 def _init_datadog_llmobs() -> bool:

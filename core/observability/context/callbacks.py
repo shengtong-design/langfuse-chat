@@ -10,10 +10,18 @@ get_crew_kwargs() is a no-op when obs is a plain ConnectorManager, so the crew
 files don't need to branch on whether the addon is active.
 """
 import logging
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
+
+from core.observability.span_limits import (
+    AGENT_ROLE,
+    RESULT,
+    STEP_OUTPUT,
+    TASK_DESCRIPTION,
+    THOUGHT,
+    TOOL_INPUT,
+)
 
 log = logging.getLogger(__name__)
-
 
 _CREWAI_PARSE_FAILURES = {"failed to parse llm response", "could not parse llm output"}
 
@@ -30,30 +38,30 @@ def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
     type_name = type(step).__name__
 
     if type_name == "AgentFinish":
-        raw_thought = str(getattr(step, "thought", "") or "")[:500]
+        raw_thought = str(getattr(step, "thought", "") or "")[:THOUGHT]
         thought, is_parse_failure = _clean_thought(raw_thought)
         raw_output = getattr(step, "output", None) or getattr(step, "return_values", {})
         if isinstance(raw_output, dict):
             raw_output = raw_output.get("output", str(raw_output))
         input_data = {} if is_parse_failure else {"thought": thought}
-        output: Dict[str, Any] = {"result": str(raw_output)[:2000]}
+        output: Dict[str, Any] = {"result": str(raw_output)[:RESULT]}
         if is_parse_failure:
             output["parse_warning"] = "crewai_failed_to_parse_llm_response"
         return input_data, output
 
     if type_name == "AgentAction":
-        raw_thought = str(getattr(step, "thought", "") or getattr(step, "log", "") or "")[:500]
+        raw_thought = str(getattr(step, "thought", "") or getattr(step, "log", "") or "")[:THOUGHT]
         thought, _ = _clean_thought(raw_thought)
         return (
             {
                 "thought": thought,
                 "tool": str(getattr(step, "tool", "")),
-                "tool_input": str(getattr(step, "tool_input", ""))[:500],
+                "tool_input": str(getattr(step, "tool_input", ""))[:TOOL_INPUT],
             },
             None,
         )
 
-    return ({"step_type": type_name}, {"raw": str(step)[:500]})
+    return ({"step_type": type_name}, {"raw": str(step)[:STEP_OUTPUT]})
 
 
 class _StepCallback:
@@ -68,7 +76,7 @@ class _StepCallback:
                 if output is not None:
                     h.update(output=output)
         except Exception:
-            log.debug("agent.step span failed", exc_info=True)
+            log.warning("agent.step span failed", exc_info=True)
 
 
 class _TaskCallback:
@@ -78,16 +86,16 @@ class _TaskCallback:
 
     def __call__(self, task_output: Any) -> None:
         try:
-            result_str = str(getattr(task_output, "raw", task_output))[:2000]
-            description = str(getattr(task_output, "description", ""))[:500]
-            agent_role = str(getattr(task_output, "agent", ""))[:100]
+            result_str = str(getattr(task_output, "raw", task_output))[:RESULT]
+            description = str(getattr(task_output, "description", ""))[:TASK_DESCRIPTION]
+            agent_role = str(getattr(task_output, "agent", ""))[:AGENT_ROLE]
             with self._obs.span(
                 "task.complete", "span",
                 input_data={"description": description, "agent": agent_role},
             ) as h:
                 h.update(output={"result": result_str})
         except Exception:
-            log.debug("task.complete span failed", exc_info=True)
+            log.warning("task.complete span failed", exc_info=True)
 
 
 class CrewCallbacks:

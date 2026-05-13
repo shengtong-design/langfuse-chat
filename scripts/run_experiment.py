@@ -16,19 +16,11 @@ Run from project root:
   py -3.12 scripts/run_experiment.py
 """
 
+from scripts.bootstrap import setup
+setup()
+
 import os
-import sys
-from pathlib import Path
-
-# Ensure project root is on sys.path when run as a script.
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
-
 from datetime import datetime
-
-from dotenv import load_dotenv
-load_dotenv()
 
 from langfuse import Langfuse
 
