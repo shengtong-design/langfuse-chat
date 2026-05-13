@@ -61,7 +61,7 @@ def main() -> None:
     def task(item):
         q = extract_question(item.input)
         print(f"Question: {q}")
-        flow = ResearchFlow(connectors_factory=lambda: connectors, langfuse_client=langfuse)
+        flow = ResearchFlow(connectors_factory=lambda: connectors)
         result = flow.kickoff(inputs={"question": q})
         answer = result.get("result", "") if isinstance(result, dict) else str(result)
         print(f"Answer (preview): {str(answer)[:100]}...")

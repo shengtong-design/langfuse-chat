@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 from crewai.flow.flow import Flow, start
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 class ResearchState(BaseModel):
     question: str = ""
     result: str = ""
-    prompt_versions: Dict[str, str] = {}
+    prompt_versions: Dict[str, str] = Field(default_factory=dict)
     stdout: str = ""
     stderr: str = ""
 
