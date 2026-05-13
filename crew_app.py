@@ -64,30 +64,17 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
-# Purge local packages from sys.modules on hot-reload to prevent KeyError on re-import.
-import sys as _sys
-print("[crew_app] purging sys.modules for core/crews/flows", flush=True)
-for _k in [k for k in _sys.modules
-           if k in ("core", "crews", "flows") or
-           k.startswith("core.") or k.startswith("crews.") or k.startswith("flows.")]:
-    del _sys.modules[_k]
-
 from datetime import datetime
 from typing import Any, Dict
 
-print("[crew_app] importing streamlit", flush=True)
 import streamlit as st
 
-print("[crew_app] importing observability", flush=True)
 from core.observability import ConnectorManager
 from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
 from core.observability.context import make_run_context, EnrichedConnectorManager
-print("[crew_app] importing crews", flush=True)
 from crews.common import extract_question
-print("[crew_app] importing flows", flush=True)
 from flows import FitnessFlow, ResearchFlow
-print("[crew_app] all imports done", flush=True)
 
 
 def _require_env(name: str) -> str:
