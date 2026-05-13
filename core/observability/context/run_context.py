@@ -12,8 +12,10 @@ class RunContext:
     environment: str = "dev"
     app_version: str = "1.0.0"
     crew_name: str = ""
+    flow_name: str = ""
     deployment_sha: str = ""
     crew_version: str = ""
+    flow_version: str = ""
     model_version: str = ""
     _workflow_id: str = field(default="", repr=False)
 
@@ -34,8 +36,10 @@ class RunContext:
             "environment":    self.environment,
             "app_version":    self.app_version,
             "crew_name":      self.crew_name,
+            "flow_name":      self.flow_name,
             "deployment_sha": self.deployment_sha,
             "crew_version":   self.crew_version,
+            "flow_version":   self.flow_version,
             "model_version":  self.model_version,
             "workflow_id":    self.workflow_id,
         }.items() if v}
@@ -46,6 +50,8 @@ class RunContext:
             tags.append(f"env:{self.environment}")
         if self.crew_name:
             tags.append(f"crew:{self.crew_name}")
+        if self.flow_name:
+            tags.append(f"flow:{self.flow_name}")
         if self.app_version:
             tags.append(f"version:{self.app_version}")
         if self.deployment_sha:
@@ -56,9 +62,11 @@ class RunContext:
         return {k: v for k, v in {
             "env":            self.environment,
             "crew":           self.crew_name,
+            "flow":           self.flow_name,
             "version":        self.app_version,
             "deployment_sha": self.deployment_sha[:8] if self.deployment_sha else "",
             "crew_version":   self.crew_version,
+            "flow_version":   self.flow_version,
             "model_version":  self.model_version,
             "workflow_id":    self.workflow_id,
             "session_id":     self.session_id,
