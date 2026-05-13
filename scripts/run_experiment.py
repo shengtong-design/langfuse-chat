@@ -16,6 +16,13 @@ Run from project root:
   py -3.12 scripts/run_experiment.py
 """
 
+import sys
+from pathlib import Path
+
+# Put the project root on sys.path so `scripts.bootstrap` is importable when
+# this file is run directly as `python scripts/run_experiment.py`.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from scripts.bootstrap import setup
 setup()
 
