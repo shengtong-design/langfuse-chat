@@ -18,10 +18,14 @@ Usage in crew_app.py:
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
 
-from core.observability import ConnectorManager
-from core.observability.base import SpanHandle
+if TYPE_CHECKING:
+    # Runtime imports of core.observability here would re-enter the core package
+    # while crew_app.py is still loading it, causing KeyError: 'core' on hot-reload.
+    # These are type-hint-only; from __future__ import annotations keeps them lazy.
+    from core.observability import ConnectorManager
+    from core.observability.base import SpanHandle
 
 from .callbacks import CrewCallbacks
 from .run_context import RunContext
