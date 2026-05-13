@@ -61,11 +61,11 @@ class LangfuseConnector(BaseConnector):
                         attrs["session_id"] = self._run_ctx.session_id
                     if self._run_ctx.user_id:
                         attrs["user_id"] = self._run_ctx.user_id
+                    tags = self._run_ctx.as_tags()
+                    if tags:
+                        attrs["tags"] = tags
                     if attrs:
                         stack.enter_context(propagate_attributes(**attrs))
-                    self._client.update_current_trace(
-                        tags=self._run_ctx.as_tags() or None,
-                    )
                 except Exception:
                     log.debug("Langfuse context propagation failed", exc_info=True)
             yield LangfuseSpanHandle(obs)
