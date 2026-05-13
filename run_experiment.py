@@ -26,6 +26,7 @@ from opentelemetry import trace
 from langfuse import Langfuse
 
 from core.crews.researcher import ResearcherCrew
+from core.crews.common import extract_question
 from core.observability import ConnectorManager
 from core.observability.langfuse_connector import LangfuseConnector
 
@@ -48,10 +49,7 @@ def main() -> None:
     crew = ResearcherCrew()
 
     def task(item):
-        q = item.input
-        if isinstance(q, dict):
-            q = q.get("question") or q.get("query") or q.get("input") or str(q)
-        q = str(q)
+        q = extract_question(item.input)
         trace.get_current_span().update_name(q)
         print(f"Question: {q}")
         result = crew.run({"question": q}, obs)

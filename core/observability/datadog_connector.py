@@ -1,8 +1,11 @@
+import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
 from .base import BaseConnector, NullSpanHandle, SpanHandle
+
+log = logging.getLogger(__name__)
 
 _TYPE_TO_DD = {
     "chain": "workflow",
@@ -45,17 +48,17 @@ class DatadogConnector(BaseConnector):
             yield NullSpanHandle()
             return
 
-        # Separate import errors from crew errors — a broken import falls back
-        # to NullSpanHandle; crew exceptions propagate normally through yield.
         try:
             from ddtrace.llmobs import LLMObs
             dd_type = _TYPE_TO_DD.get(span_type, "task")
             method = getattr(LLMObs, dd_type, None)
         except (ModuleNotFoundError, AttributeError):
+            log.debug("Datadog LLMObs unavailable", exc_info=True)
             yield NullSpanHandle()
             return
 
         if method is None:
+            log.debug("Datadog LLMObs has no method for span type %r", span_type)
             yield NullSpanHandle()
             return
 
@@ -69,8 +72,6 @@ class DatadogConnector(BaseConnector):
 
         handle = DatadogSpanHandle()
         with method(**span_kwargs):
-            # Always annotate context — metadata and tags must be set even when
-            # there is no input_data (e.g. agent.step callbacks).
             annotate_kwargs: Dict[str, Any] = {"metadata": metadata or {}}
             if input_data:
                 annotate_kwargs["input_data"] = input_data
@@ -82,8 +83,6 @@ class DatadogConnector(BaseConnector):
             try:
                 yield handle
             finally:
-                # Annotate output while still inside this span's context so
-                # LLMObs.annotate() targets the correct nesting level.
                 if handle._output is not None:
                     LLMObs.annotate(output_data=handle._output)
 
@@ -94,4 +93,4 @@ class DatadogConnector(BaseConnector):
             from ddtrace.llmobs import LLMObs
             LLMObs.flush()
         except Exception:
-            pass
+            log.debug("Datadog LLMObs flush failed", exc_info=True)

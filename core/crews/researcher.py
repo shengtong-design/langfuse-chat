@@ -1,8 +1,7 @@
-import contextlib
-import io
 from typing import Any, Dict
 
 from .base import BaseCrew
+from .common import kickoff_crew
 
 
 class ResearcherCrew(BaseCrew):
@@ -30,28 +29,12 @@ class ResearcherCrew(BaseCrew):
         task = Task(**task_spec, agent=researcher)
         crew = Crew(agents=[researcher], tasks=[task], verbose=True, **get_crew_kwargs(obs))
 
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-
         with obs.span(
-            "crewai.research",
-            "chain",
+            "crewai.research", "chain",
             input_data={"question": question, "crew": {"agents": [agent_spec], "tasks": [task_spec]}},
             metadata={"framework": "crewai", "crew": self.crew_name},
         ) as root:
-            with obs.span(
-                "crew.kickoff",
-                "span",
-                input_data={"question": question, "agents": [agent_spec], "tasks": [task_spec]},
-            ) as kickoff:
-                try:
-                    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                        result = crew.kickoff()
-                    output = str(result)
-                    kickoff.update(output={"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()})
-                    root.update(output={"result": output})
-                    return {"result": output, "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}
-                except Exception as e:
-                    kickoff.update(output={"error": repr(e), "stdout": stdout_buf.getvalue(), "stderr": stderr_buf.getvalue()}, level="ERROR")
-                    root.update(output={"error": repr(e)}, level="ERROR")
-                    raise
+            result, stdout, stderr = kickoff_crew(crew, obs, input_data={"question": question})
+            output = str(result)
+            root.update(output={"result": output})
+            return {"result": output, "stdout": stdout, "stderr": stderr}

@@ -71,11 +71,13 @@ def _init_datadog_llmobs() -> bool:
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
 from datetime import datetime
+from typing import Any, Dict
 
 import streamlit as st
 from opentelemetry import trace
 
 from core.crews import CREWS
+from core.crews.common import extract_question
 from core.observability import ConnectorManager
 from core.observability.context import EnrichedConnectorManager, make_run_context
 from core.observability.datadog_connector import DatadogConnector
@@ -106,6 +108,24 @@ def _get_connectors() -> ConnectorManager:
     ])
 
 
+def _run_crew(crew_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a context-enriched obs, run the named crew, flush, and return data."""
+    obs = EnrichedConnectorManager(_get_connectors(), make_run_context(crew_name))
+    data = CREWS[crew_name]().run(inputs, obs)
+    obs.flush()
+    return data
+
+
+def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool = False) -> None:
+    """Render crew result and collapsible stdout/stderr."""
+    st.subheader(heading)
+    (st.markdown if markdown else st.write)(data["result"])
+    with st.expander("stdout / stderr", expanded=False):
+        st.code(data.get("stdout") or "", language="text")
+        if data.get("stderr"):
+            st.code(data["stderr"], language="text")
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="CrewAI Runner", layout="wide")
@@ -130,16 +150,9 @@ with tab_research:
 
     if research_btn:
         try:
-            obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
             with st.spinner("Running researcher crew..."):
-                data = CREWS["researcher"]().run({"question": question.strip()}, obs)
-            obs.flush()
-            st.subheader("Result")
-            st.write(data["result"])
-            with st.expander("stdout / stderr", expanded=False):
-                st.code(data.get("stdout") or "", language="text")
-                if data.get("stderr"):
-                    st.code(data["stderr"], language="text")
+                data = _run_crew("researcher", {"question": question.strip()})
+            _show_output(data)
         except Exception as e:
             st.error(f"Failed: {e}")
 
@@ -170,25 +183,15 @@ with tab_fitness:
             st.warning("Please fill in goals and available equipment.")
         else:
             try:
-                obs = EnrichedConnectorManager(_get_connectors(), make_run_context("fitness_training"))
                 with st.spinner("Generating your personalized fitness plan (3 agents)..."):
-                    data = CREWS["fitness_training"]().run(
-                        {
-                            "goals": goals.strip(),
-                            "fitness_level": fitness_level,
-                            "equipment": equipment.strip(),
-                            "time_per_week": time_per_week,
-                            "limitations": limitations.strip() or "None specified",
-                        },
-                        obs,
-                    )
-                obs.flush()
-                st.subheader("Your Personalized Fitness Plan")
-                st.markdown(data["result"])
-                with st.expander("stdout / stderr", expanded=False):
-                    st.code(data.get("stdout") or "", language="text")
-                    if data.get("stderr"):
-                        st.code(data["stderr"], language="text")
+                    data = _run_crew("fitness_training", {
+                        "goals": goals.strip(),
+                        "fitness_level": fitness_level,
+                        "equipment": equipment.strip(),
+                        "time_per_week": time_per_week,
+                        "limitations": limitations.strip() or "None specified",
+                    })
+                _show_output(data, heading="Your Personalized Fitness Plan", markdown=True)
             except Exception as e:
                 st.error(f"Failed: {e}")
 
@@ -223,12 +226,8 @@ with tab_experiment:
                 crew = CREWS["researcher"]()
 
                 def _task(item):
-                    q = item.input
-                    if isinstance(q, dict):
-                        q = q.get("question") or q.get("query") or q.get("input") or str(q)
-                    q = str(q)
+                    q = extract_question(item.input)
                     trace.get_current_span().update_name(q)
-                    # Fresh obs per item: same session_id (same browser tab) but new run_id.
                     item_obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
                     result = crew.run({"question": q}, item_obs)
                     item_obs.flush()

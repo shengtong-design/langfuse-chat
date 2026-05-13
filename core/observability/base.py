@@ -1,6 +1,26 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, Protocol
+
+
+class ObsManager(Protocol):
+    """Structural type for the observability manager passed to crew.run().
+
+    Satisfied by ConnectorManager and EnrichedConnectorManager without
+    inheritance — crew files stay decoupled from the observability package.
+    """
+
+    def span(
+        self,
+        name: str,
+        span_type: str,
+        input_data: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Any: ...
+
+    def flush(self) -> None: ...
+
+    def update_run_context(self, context: Any) -> None: ...
 
 
 class SpanHandle(ABC):

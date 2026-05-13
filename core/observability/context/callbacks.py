@@ -9,7 +9,10 @@ Wire to a Crew like this:
 get_crew_kwargs() is a no-op when obs is a plain ConnectorManager, so the crew
 files don't need to branch on whether the addon is active.
 """
+import logging
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class CrewCallbacks:
@@ -28,7 +31,7 @@ class CrewCallbacks:
             ) as h:
                 h.update(output={"step": output_str})
         except Exception:
-            pass
+            log.debug("agent.step span failed", exc_info=True)
 
     def on_task_complete(self, task_output: Any) -> None:
         """Fires when each CrewAI Task finishes."""
@@ -42,7 +45,7 @@ class CrewCallbacks:
             ) as h:
                 h.update(output={"result": result_str})
         except Exception:
-            pass
+            log.debug("task.complete span failed", exc_info=True)
 
 
 def get_crew_kwargs(obs: Any) -> dict:

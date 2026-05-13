@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
-    from core.observability import ConnectorManager
+    from core.observability.base import ObsManager
 
 
 class BaseCrew(ABC):
@@ -17,6 +17,6 @@ class BaseCrew(ABC):
     def crew_name(self) -> str: ...
 
     @abstractmethod
-    def run(self, inputs: Dict[str, Any], obs: "ConnectorManager") -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any], obs: "ObsManager") -> Dict[str, Any]:
         """Execute the crew and return a dict with at least a 'result' key."""
         ...

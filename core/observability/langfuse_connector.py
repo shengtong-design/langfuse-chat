@@ -1,7 +1,10 @@
+import logging
 from contextlib import ExitStack, contextmanager
 from typing import Any, Dict, Iterator, Optional
 
 from .base import BaseConnector, SpanHandle
+
+log = logging.getLogger(__name__)
 
 
 class LangfuseSpanHandle(SpanHandle):
@@ -43,11 +46,11 @@ class LangfuseConnector(BaseConnector):
             kwargs["input"] = input_data
         if metadata is not None:
             kwargs["metadata"] = metadata
-        # The docs pattern is: open the trace FIRST, then call propagate_attributes
-        # INSIDE the active trace context. propagate_attributes updates the current
-        # root trace with session_id/user_id and propagates them to child spans via
-        # OTel baggage. Calling it before start_as_current_observation has no active
-        # trace to attach to, which is why session_id was silently dropped.
+
+        # Open the trace first, then call propagate_attributes inside it.
+        # The docs pattern is: trace root open → propagate_attributes inside →
+        # which updates the current trace with session_id/user_id and propagates
+        # them to child spans via OTel baggage.
         with ExitStack() as stack:
             obs = stack.enter_context(self._client.start_as_current_observation(**kwargs))
             if self._run_ctx is not None:
@@ -64,11 +67,11 @@ class LangfuseConnector(BaseConnector):
                         tags=self._run_ctx.as_tags() or None,
                     )
                 except Exception:
-                    pass
+                    log.debug("Langfuse context propagation failed", exc_info=True)
             yield LangfuseSpanHandle(obs)
 
     def flush(self) -> None:
         try:
             self._client.flush()
         except Exception:
-            pass
+            log.debug("Langfuse flush failed", exc_info=True)
