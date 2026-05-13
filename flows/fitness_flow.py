@@ -65,5 +65,5 @@ class FitnessFlow(Flow[FitnessState]):
             self.state.stderr = data.get("stderr", "")
             return data
         except Exception:
-            log.exception("run_fitness_plan failed")
+            log.exception("run_fitness_plan failed")  # ensure traceback appears in server logs
             raise

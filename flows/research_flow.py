@@ -54,5 +54,5 @@ class ResearchFlow(Flow[ResearchState]):
             self.state.stderr = data.get("stderr", "")
             return data
         except Exception:
-            log.exception("run_research failed")
+            log.exception("run_research failed")  # ensure traceback appears in server logs
             raise

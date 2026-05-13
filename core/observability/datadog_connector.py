@@ -60,12 +60,12 @@ class DatadogConnector(BaseConnector):
             dd_type = _TYPE_TO_DD.get(span_type, "task")
             method = getattr(LLMObs, dd_type, None)
         except (ModuleNotFoundError, AttributeError):
-            log.debug("Datadog LLMObs unavailable", exc_info=True)
+            log.info("Datadog LLMObs unavailable — spans will be no-ops", exc_info=True)
             yield NullSpanHandle()
             return
 
         if method is None:
-            log.debug("Datadog LLMObs has no method for span type %r", span_type)
+            log.info("Datadog LLMObs has no method for span type %r", span_type)
             yield NullSpanHandle()
             return
 
@@ -107,4 +107,4 @@ class DatadogConnector(BaseConnector):
             from ddtrace.llmobs import LLMObs
             LLMObs.flush()
         except Exception:
-            log.debug("Datadog LLMObs flush failed", exc_info=True)
+            log.warning("Datadog LLMObs flush failed", exc_info=True)

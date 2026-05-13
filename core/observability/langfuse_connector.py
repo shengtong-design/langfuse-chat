@@ -64,11 +64,11 @@ class LangfuseConnector(BaseConnector):
                     if attrs:
                         stack.enter_context(propagate_attributes(**attrs))
                 except Exception:
-                    log.debug("Langfuse context propagation failed", exc_info=True)
+                    log.warning("Langfuse context propagation failed", exc_info=True)
             yield LangfuseSpanHandle(obs)
 
     def flush(self) -> None:
         try:
             self._client.flush()
         except Exception:
-            log.debug("Langfuse flush failed", exc_info=True)
+            log.warning("Langfuse flush failed", exc_info=True)
