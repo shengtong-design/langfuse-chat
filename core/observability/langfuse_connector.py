@@ -11,14 +11,11 @@ class LangfuseSpanHandle(SpanHandle):
     def __init__(self, obs: Any) -> None:
         self._obs = obs
 
-    def update(self, output: Any = None, level: str = "DEFAULT") -> None:
-        kwargs: Dict[str, Any] = {}
-        if output is not None:
-            kwargs["output"] = output
-        if level != "DEFAULT":
-            kwargs["level"] = level
-        if kwargs:
-            self._obs.update(**kwargs)
+    def set_output(self, output: Any) -> None:
+        self._obs.update(output=output)
+
+    def mark_error(self) -> None:
+        self._obs.update(level="ERROR")
 
 
 class LangfuseConnector(BaseConnector):

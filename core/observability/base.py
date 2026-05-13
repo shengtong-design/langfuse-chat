@@ -24,18 +24,30 @@ class ObsManager(Protocol):
 
 
 class SpanHandle(ABC):
+    """Handle returned by connector.span() context managers.
+
+    Callers may call set_output() and/or mark_error() at most once per span,
+    before the context manager exits. Connectors do not merge multiple calls.
+    """
+
     @abstractmethod
-    def update(self, output: Any = None, level: str = "DEFAULT") -> None: ...
+    def set_output(self, output: Any) -> None: ...
+
+    @abstractmethod
+    def mark_error(self) -> None: ...
 
 
 class NullSpanHandle(SpanHandle):
-    def update(self, output: Any = None, level: str = "DEFAULT") -> None:
+    def set_output(self, output: Any) -> None:
+        pass
+
+    def mark_error(self) -> None:
         pass
 
 
 class BaseConnector(ABC):
-    # Set to False on connectors that have native CrewAI instrumentation (e.g. Datadog/ddtrace).
-    # When False, the connector is excluded from CrewCallbacks so its own patching runs unobstructed.
+    # Set to False on connectors with native CrewAI instrumentation (e.g. Datadog/ddtrace)
+    # so their own patching runs unobstructed by our step/task callbacks.
     handles_step_callbacks: bool = True
 
     @property

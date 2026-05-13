@@ -8,9 +8,13 @@ class MultiSpanHandle(SpanHandle):
     def __init__(self, handles: List[SpanHandle]) -> None:
         self._handles = handles
 
-    def update(self, output: Any = None, level: str = "DEFAULT") -> None:
+    def set_output(self, output: Any) -> None:
         for h in self._handles:
-            h.update(output=output, level=level)
+            h.set_output(output)
+
+    def mark_error(self) -> None:
+        for h in self._handles:
+            h.mark_error()
 
 
 class ConnectorManager:

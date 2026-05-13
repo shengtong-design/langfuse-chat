@@ -24,15 +24,13 @@ def kickoff_crew(
             with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
                 result = crew.kickoff(inputs=input_data or {})
             stdout, stderr = stdout_buf.getvalue(), stderr_buf.getvalue()
-            kickoff.update(output={"result": str(result), "stdout": stdout, "stderr": stderr})
+            kickoff.set_output({"result": str(result), "stdout": stdout, "stderr": stderr})
             return result, stdout, stderr
         except Exception as e:
             stdout, stderr = stdout_buf.getvalue(), stderr_buf.getvalue()
-            log.debug("crew.kickoff failed", exc_info=True)
-            kickoff.update(
-                output={"error": repr(e), "stdout": stdout, "stderr": stderr},
-                level="ERROR",
-            )
+            log.warning("crew.kickoff failed", exc_info=True)
+            kickoff.set_output({"error": repr(e), "stdout": stdout, "stderr": stderr})
+            kickoff.mark_error()
             raise
 
 

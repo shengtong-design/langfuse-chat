@@ -21,10 +21,11 @@ class DatadogSpanHandle(SpanHandle):
         self._output: Optional[Any] = None
         self._error: bool = False
 
-    def update(self, output: Any = None, level: str = "DEFAULT") -> None:
+    def set_output(self, output: Any) -> None:
         self._output = output
-        if level == "ERROR":
-            self._error = True
+
+    def mark_error(self) -> None:
+        self._error = True
 
 
 class DatadogConnector(BaseConnector):

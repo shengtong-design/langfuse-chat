@@ -113,7 +113,7 @@ class BaseCrew(ABC):
         ) as root:
             result, stdout, stderr = kickoff_crew(crew, obs, input_data=inputs)
             output = self._format_result(result, result.tasks_output or [])
-            root.update(output={"result": output})
+            root.set_output({"result": output})
             return {
                 "result": output,
                 "stdout": stdout,

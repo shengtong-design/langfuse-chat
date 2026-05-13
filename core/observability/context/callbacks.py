@@ -74,7 +74,7 @@ class _StepCallback:
             input_data, output = _parse_step(step_output)
             with self._obs.span("agent.step", "agent", input_data=input_data) as h:
                 if output is not None:
-                    h.update(output=output)
+                    h.set_output(output)
         except Exception:
             log.warning("agent.step span failed", exc_info=True)
 
@@ -93,7 +93,7 @@ class _TaskCallback:
                 "task.complete", "span",
                 input_data={"description": description, "agent": agent_role},
             ) as h:
-                h.update(output={"result": result_str})
+                h.set_output({"result": result_str})
         except Exception:
             log.warning("task.complete span failed", exc_info=True)
 
