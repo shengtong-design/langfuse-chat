@@ -14,7 +14,15 @@ import yaml
 from .run_context import RunContext
 
 _CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config" / "environments"
+_VERSION_FILE = Path(__file__).parent.parent.parent.parent / "VERSION"
 _ENV_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _read_app_version() -> str:
+    try:
+        return _VERSION_FILE.read_text().strip()
+    except Exception:
+        return os.getenv("APP_VERSION", "0.0.0")
 
 
 def _load_env_config(environment: str) -> Dict[str, Any]:
@@ -49,17 +57,15 @@ def make_run_context(crew_name: str = "", workflow_id: str = "") -> RunContext:
     user_id = os.getenv("USER_ID", "") or session_id
     run_id = str(uuid4())
 
-    crew_versions: Dict[str, str] = env_cfg.get("crew_versions", {})
-
     return RunContext(
         session_id=session_id,
         run_id=run_id,
         user_id=user_id,
         environment=environment,
-        app_version=env_cfg.get("app_version", os.getenv("APP_VERSION", "1.0.0")),
+        app_version=_read_app_version(),
         crew_name=crew_name,
         deployment_sha=env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", ""),
-        crew_version=crew_versions.get(crew_name, ""),
+        crew_version="",  # set by BaseCrew after prompts are loaded
         model_version=env_cfg.get("model_defaults", {}).get("default", "") or os.getenv("MODEL_VERSION", ""),
         workflow_id=workflow_id or run_id,
     )
