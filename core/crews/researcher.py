@@ -1,13 +1,12 @@
+from pathlib import Path
 from typing import Any, Dict
+
+import yaml
 
 from .base import BaseCrew
 from .common import kickoff_crew
 
-_DEFAULTS = {
-    "role": "Researcher",
-    "goal": "Research the user's question and answer clearly and accurately.",
-    "backstory": "You are a diligent researcher who writes concise, well-structured answers with examples.",
-}
+_CONFIG = yaml.safe_load((Path(__file__).parent / "researcher.yaml").read_text())
 
 
 class ResearcherCrew(BaseCrew):
@@ -20,24 +19,40 @@ class ResearcherCrew(BaseCrew):
         from core.observability.context.callbacks import get_crew_kwargs
         from core.prompts import PromptLoader
 
-        question = inputs["question"]
+        loader = PromptLoader()
+        prompts = {}
+        agents = {}
+        for name, spec in _CONFIG["agents"].items():
+            prompt = loader.get(f"researcher_{name}", fallback=spec)
+            prompts[name] = prompt
+            agents[name] = Agent(**prompt.config, verbose=True, allow_delegation=False)
 
-        prompt = PromptLoader().get("researcher_agent", fallback=_DEFAULTS)
+        tasks = [
+            Task(
+                description=spec["description"].format(**inputs),
+                expected_output=spec["expected_output"],
+                agent=agents[spec["agent"]],
+            )
+            for spec in _CONFIG["tasks"].values()
+        ]
+        crew = Crew(
+            agents=list(agents.values()),
+            tasks=tasks,
+            verbose=True,
+            **get_crew_kwargs(obs),
+        )
 
-        task_spec = {
-            "description": f'Research the question: "{question}"',
-            "expected_output": "A clear, concise answer with key points and 1-3 examples if applicable.",
+        prompt_meta = {
+            f"agent.{name}.prompt_version": p.version
+            for name, p in prompts.items()
         }
-        researcher = Agent(**prompt.config, verbose=True, allow_delegation=False)
-        task = Task(**task_spec, agent=researcher)
-        crew = Crew(agents=[researcher], tasks=[task], verbose=True, **get_crew_kwargs(obs))
 
         with obs.span(
             "crewai.research", "chain",
-            input_data={"question": question, "crew": {"agents": [prompt.config], "tasks": [task_spec]}},
-            metadata={"framework": "crewai", "crew": self.crew_name, **prompt.as_metadata()},
+            input_data=inputs,
+            metadata={"framework": "crewai", "crew": self.crew_name, **prompt_meta},
         ) as root:
-            result, stdout, stderr = kickoff_crew(crew, obs, input_data={"question": question})
+            result, stdout, stderr = kickoff_crew(crew, obs, input_data=inputs)
             output = str(result)
             root.update(output={"result": output})
             return {"result": output, "stdout": stdout, "stderr": stderr}

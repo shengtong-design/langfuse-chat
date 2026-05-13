@@ -1,0 +1,13 @@
+agents:
+  agent:
+    role: Researcher
+    goal: Research the user's question and answer clearly and accurately.
+    backstory: >
+      You are a diligent researcher who writes concise, well-structured
+      answers with examples.
+
+tasks:
+  research:
+    agent: agent
+    description: 'Research the question: "{question}"'
+    expected_output: A clear, concise answer with key points and 1-3 examples if applicable.
