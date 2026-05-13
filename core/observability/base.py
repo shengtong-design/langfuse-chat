@@ -34,6 +34,10 @@ class NullSpanHandle(SpanHandle):
 
 
 class BaseConnector(ABC):
+    # Set to False on connectors that have native CrewAI instrumentation (e.g. Datadog/ddtrace).
+    # When False, the connector is excluded from CrewCallbacks so its own patching runs unobstructed.
+    handles_step_callbacks: bool = True
+
     @property
     @abstractmethod
     def enabled(self) -> bool: ...

@@ -32,10 +32,17 @@ from .run_context import RunContext
 
 
 class EnrichedConnectorManager:
-    def __init__(self, base: ConnectorManager, context: RunContext) -> None:
+    def __init__(
+        self, base: "ConnectorManager", context: RunContext, _init_callbacks: bool = True
+    ) -> None:
         self._base = base
         self._ctx = context
-        self._callbacks = CrewCallbacks(self)
+        if _init_callbacks:
+            # Callbacks get their own enriched obs backed only by connectors that
+            # opted in (handles_step_callbacks=True). Datadog is excluded so its
+            # native ddtrace CrewAI instrumentation runs unobstructed.
+            cb_obs = EnrichedConnectorManager(base.for_callbacks(), context, _init_callbacks=False)
+            self._callbacks = CrewCallbacks(cb_obs)
         base.update_run_context(context)
 
     @property

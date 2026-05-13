@@ -28,6 +28,9 @@ class DatadogSpanHandle(SpanHandle):
 
 
 class DatadogConnector(BaseConnector):
+    # ddtrace patches CrewAI natively — our step/task callbacks would double-instrument it.
+    handles_step_callbacks: bool = False
+
     def __init__(self, active: bool) -> None:
         self._active = active
         self._run_ctx: Optional[Any] = None

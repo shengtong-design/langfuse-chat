@@ -45,3 +45,11 @@ class ConnectorManager:
     def update_run_context(self, context: Any) -> None:
         for c in self._connectors:
             c.update_run_context(context)
+
+    def for_callbacks(self) -> "ConnectorManager":
+        """Return a manager containing only connectors that handle step callbacks.
+
+        Connectors with native CrewAI instrumentation (e.g. Datadog) set
+        handles_step_callbacks=False so ddtrace's own patching runs unobstructed.
+        """
+        return ConnectorManager([c for c in self._connectors if c.handles_step_callbacks])
