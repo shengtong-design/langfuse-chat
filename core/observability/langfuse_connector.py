@@ -43,11 +43,13 @@ class LangfuseConnector(BaseConnector):
             kwargs["input"] = input_data
         if metadata is not None:
             kwargs["metadata"] = metadata
-        # propagate_attributes MUST wrap start_as_current_observation — Langfuse
-        # reads session_id/user_id from the OTel context at trace creation time.
-        # Calling update_current_trace() after the span opens is too late for
-        # session grouping (it updates the object but not the session index).
+        # The docs pattern is: open the trace FIRST, then call propagate_attributes
+        # INSIDE the active trace context. propagate_attributes updates the current
+        # root trace with session_id/user_id and propagates them to child spans via
+        # OTel baggage. Calling it before start_as_current_observation has no active
+        # trace to attach to, which is why session_id was silently dropped.
         with ExitStack() as stack:
+            obs = stack.enter_context(self._client.start_as_current_observation(**kwargs))
             if self._run_ctx is not None:
                 try:
                     from langfuse import propagate_attributes
@@ -58,13 +60,6 @@ class LangfuseConnector(BaseConnector):
                         attrs["user_id"] = self._run_ctx.user_id
                     if attrs:
                         stack.enter_context(propagate_attributes(**attrs))
-                except Exception:
-                    pass
-            obs = stack.enter_context(self._client.start_as_current_observation(**kwargs))
-            if self._run_ctx is not None:
-                try:
-                    # tags are trace-level metadata, not session routing — safe to
-                    # set after span opens.
                     self._client.update_current_trace(
                         tags=self._run_ctx.as_tags() or None,
                     )
