@@ -70,6 +70,13 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
+# On Streamlit Cloud hot-reload, stale partial entries for 'core' and its
+# sub-packages can be left in sys.modules, causing KeyError: 'core' on the
+# next import. Purging them here ensures a clean re-import every run.
+import sys as _sys
+for _k in [k for k in _sys.modules if k == "core" or k.startswith("core.")]:
+    del _sys.modules[_k]
+
 from datetime import datetime
 from typing import Any, Dict
 
