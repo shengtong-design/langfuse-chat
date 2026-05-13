@@ -400,6 +400,16 @@ exists to:</p>
 <li>Instantiate its Crew, passing the connectors-factory.</li>
 <li>Run the crew, flush spans, and populate the state model.</li>
 </ol>
+<p>Each Flow subclass declares its own identity, propagated to every span:</p>
+<pre><code class="language-python">class ResearchFlow(Flow[ResearchState]):
+    flow_name: ClassVar[str] = &quot;researcher&quot;
+    flow_version: ClassVar[str] = &quot;1.0.0&quot;
+</code></pre>
+<p><code>flow_name</code> / <code>flow_version</code> are independent from <code>crew_name</code> / <code>crew_version</code>:
+the Crew's recipe lives on the crew class, while the Flow's recipe (topology,
+state model, post-processing, which crew(s) it orchestrates) lives here.
+Bump <code>flow_version</code> when the Flow body changes — even if the Crew didn't —
+so traces can be bucketed by either axis.</p>
 <p>Flows are what <code>crew_app.py</code> calls. They give the UI a uniform interface
 (<code>flow.kickoff(inputs={...})</code>) regardless of crew internals.</p>
 <h3 id="45-promptloader"><a class="toclink" href="#45-promptloader">4.5 PromptLoader</a></h3>
@@ -514,9 +524,19 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 <td>E.g. <code>"researcher"</code>, <code>"fitness_training"</code>.</td>
 </tr>
 <tr>
+<td><code>flow_name</code></td>
+<td>Caller-provided (from <code>Flow.flow_name</code>)</td>
+<td>Same as <code>crew_name</code> today (1:1 mapping); diverges when a flow orchestrates more than one crew.</td>
+</tr>
+<tr>
 <td><code>crew_version</code></td>
 <td>Pulled from the crew class</td>
-<td>Recipe semver.</td>
+<td>Crew recipe semver.</td>
+</tr>
+<tr>
+<td><code>flow_version</code></td>
+<td>Pulled from the flow class</td>
+<td>Flow recipe semver. Independent of <code>crew_version</code>.</td>
 </tr>
 <tr>
 <td><code>deployment_sha</code></td>
@@ -553,6 +573,12 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 <td>Every deploy.</td>
 </tr>
 <tr>
+<td><strong>Flow recipe</strong></td>
+<td><code>flow_version</code> (semver on the Flow class)</td>
+<td>Flow authors</td>
+<td>Manual PR bump when the Flow body changes: <code>@start</code>/<code>@listen</code>/<code>@router</code> topology, state-model fields, which crew(s) it orchestrates, or post-processing.</td>
+</tr>
+<tr>
 <td><strong>Crew recipe</strong></td>
 <td><code>crew_version</code> (semver on the crew class)</td>
 <td>Crew authors</td>
@@ -566,8 +592,10 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 </tr>
 </tbody>
 </table>
-<p>These three are independent filter axes in Langfuse: bucket by deployment, by
-recipe, or by resolved prompts, in any combination.</p>
+<p>These four are independent filter axes in Langfuse: bucket by deployment,
+flow recipe, crew recipe, or resolved prompts, in any combination. Flow and
+crew versions move independently — changing a Flow's topology bumps
+<code>flow_version</code> only; changing a Crew's agent list bumps <code>crew_version</code> only.</p>
 <hr>
 <h2 id="5-runtime-sequence-one-crew-run"><a class="toclink" href="#5-runtime-sequence-one-crew-run">5. Runtime Sequence (one crew run)</a></h2>
 <pre><code>crew_app.py
@@ -861,9 +889,19 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 <td>Which crew (<code>researcher</code>, <code>fitness_training</code>).</td>
 </tr>
 <tr>
+<td><code>flow_name</code></td>
+<td>Trace metadata + tag</td>
+<td>Which Flow orchestrated this run (<code>researcher</code>, <code>fitness_training</code>). Today same as <code>crew_name</code>; diverges for multi-crew flows.</td>
+</tr>
+<tr>
 <td><code>crew_version</code></td>
 <td>Trace metadata</td>
-<td>Which <strong>recipe</strong> version. Bumped manually.</td>
+<td>Which <strong>crew recipe</strong> version. Bumped manually.</td>
+</tr>
+<tr>
+<td><code>flow_version</code></td>
+<td>Trace metadata</td>
+<td>Which <strong>flow recipe</strong> version. Bumped manually. Independent of <code>crew_version</code>.</td>
 </tr>
 <tr>
 <td><code>agents_signature</code></td>
@@ -979,6 +1017,10 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 <li><strong>Change task wiring</strong> (agent assignment, tools, context, output schema,
   async, retries, ...): edit <code>tasks/&lt;name&gt;.yaml</code> at the top level (outside
   the <code>fallback:</code> block) and bump <code>crew_version</code>.</li>
+<li><strong>Change a Flow's topology or state model</strong> (<code>@start</code>/<code>@listen</code>/<code>@router</code>
+  edits, state fields, swapping which crew it kicks off, post-processing):
+  bump the Flow class's <code>flow_version</code>. Do <strong>not</strong> bump <code>crew_version</code> —
+  that's a separate axis.</li>
 <li><strong>Add a new crew:</strong> see <a href="#7-extension-points">§7 Extension Points</a>.</li>
 <li><strong>Update skill packs (for AI coding agents):</strong> <code>npx skills update</code>. Re-group
   under <code>.agents/skills/&lt;vendor&gt;/</code> if new skills landed flatly.</li>

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict
+from typing import Any, Callable, ClassVar, Dict
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel, Field
@@ -29,6 +29,12 @@ class FitnessFlow(Flow[FitnessState]):
         result = flow.kickoff(inputs={"goals": "...", "fitness_level": "beginner", ...})
     """
 
+    # Flow recipe semver. Bump when the flow body changes: topology
+    # (@start/@listen/@router edits), state-model fields, which crew(s) it
+    # orchestrates, or post-processing. Independent of FitnessCrew.crew_version.
+    flow_version: ClassVar[str] = "1.0.0"
+    flow_name: ClassVar[str] = "fitness_training"
+
     def __init__(
         self,
         connectors_factory: Callable,
@@ -52,7 +58,12 @@ class FitnessFlow(Flow[FitnessState]):
             }
             obs = EnrichedConnectorManager(
                 self._connectors_factory(),
-                make_run_context("fitness_training", crew_version=FitnessCrew.crew_version),
+                make_run_context(
+                    crew_name="fitness_training",
+                    crew_version=FitnessCrew.crew_version,
+                    flow_name=self.flow_name,
+                    flow_version=self.flow_version,
+                ),
             )
             data = FitnessCrew().run(
                 inputs,

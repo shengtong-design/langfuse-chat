@@ -254,6 +254,20 @@ exists to:
 2. Instantiate its Crew, passing the connectors-factory.
 3. Run the crew, flush spans, and populate the state model.
 
+Each Flow subclass declares its own identity, propagated to every span:
+
+```python
+class ResearchFlow(Flow[ResearchState]):
+    flow_name: ClassVar[str] = "researcher"
+    flow_version: ClassVar[str] = "1.0.0"
+```
+
+`flow_name` / `flow_version` are independent from `crew_name` / `crew_version`:
+the Crew's recipe lives on the crew class, while the Flow's recipe (topology,
+state model, post-processing, which crew(s) it orchestrates) lives here.
+Bump `flow_version` when the Flow body changes — even if the Crew didn't —
+so traces can be bucketed by either axis.
+
 Flows are what `crew_app.py` calls. They give the UI a uniform interface
 (`flow.kickoff(inputs={...})`) regardless of crew internals.
 
@@ -328,7 +342,9 @@ crew_version)` and propagated via `EnrichedConnectorManager` to every span.
 | `environment` | `ENVIRONMENT` env var, default `dev` | Drives `config/environments/<env>.yaml` lookup. |
 | `app_version` | `VERSION` file (fallback: `APP_VERSION` env, then `0.0.0`) | |
 | `crew_name` | Caller-provided | E.g. `"researcher"`, `"fitness_training"`. |
-| `crew_version` | Pulled from the crew class | Recipe semver. |
+| `flow_name` | Caller-provided (from `Flow.flow_name`) | Same as `crew_name` today (1:1 mapping); diverges when a flow orchestrates more than one crew. |
+| `crew_version` | Pulled from the crew class | Crew recipe semver. |
+| `flow_version` | Pulled from the flow class | Flow recipe semver. Independent of `crew_version`. |
 | `deployment_sha` | `config/environments/<env>.yaml` or `DEPLOYMENT_SHA` env | |
 | `model_version` | `config/environments/<env>.yaml` `model_defaults.default` or `MODEL_VERSION` env | |
 | `workflow_id` | Settable, defaults to `run_id` | For grouping retries of the same logical workflow. |
@@ -338,11 +354,14 @@ crew_version)` and propagated via `EnrichedConnectorManager` to every span.
 | Layer | Field(s) | Owner | When it changes |
 |---|---|---|---|
 | **Deployment** | `app_version` (`VERSION` file), `deployment_sha` | Build/release | Every deploy. |
+| **Flow recipe** | `flow_version` (semver on the Flow class) | Flow authors | Manual PR bump when the Flow body changes: `@start`/`@listen`/`@router` topology, state-model fields, which crew(s) it orchestrates, or post-processing. |
 | **Crew recipe** | `crew_version` (semver on the crew class) | Crew authors | Manual PR bump when the recipe (agent list, task order, tools, task-YAML wiring, formatting code) changes. |
 | **Per-run prompt resolution** | `agents_signature` + `tasks_signature` (root-span metadata), plus per-prompt `prompt_name`/`prompt_version`/`prompt_source` entries | Runtime + Langfuse | Auto — whenever Langfuse serves a different version for any agent or task prompt. |
 
-These three are independent filter axes in Langfuse: bucket by deployment, by
-recipe, or by resolved prompts, in any combination.
+These four are independent filter axes in Langfuse: bucket by deployment,
+flow recipe, crew recipe, or resolved prompts, in any combination. Flow and
+crew versions move independently — changing a Flow's topology bumps
+`flow_version` only; changing a Crew's agent list bumps `crew_version` only.
 
 ---
 
@@ -588,7 +607,9 @@ Each crew run produces one trace. Useful metadata fields to filter on:
 | Field | Where it lives | What it tells you |
 |---|---|---|
 | `crew_name` | Trace metadata + tag | Which crew (`researcher`, `fitness_training`). |
-| `crew_version` | Trace metadata | Which **recipe** version. Bumped manually. |
+| `flow_name` | Trace metadata + tag | Which Flow orchestrated this run (`researcher`, `fitness_training`). Today same as `crew_name`; diverges for multi-crew flows. |
+| `crew_version` | Trace metadata | Which **crew recipe** version. Bumped manually. |
+| `flow_version` | Trace metadata | Which **flow recipe** version. Bumped manually. Independent of `crew_version`. |
 | `agents_signature` | Root span metadata | Which **agent prompt versions** resolved (e.g. `"researcher@6"`). |
 | `tasks_signature` | Root span metadata | Which **task prompt versions** resolved (e.g. `"research@2"`). |
 | `agent.<name>.prompt_name` / `prompt_version` / `prompt_source` | Root span metadata | Per-agent drill-down. `prompt_name` is the namespaced Langfuse name (e.g. `agent.researcher`). |
@@ -631,6 +652,10 @@ Recommended bucketing:
 - **Change task wiring** (agent assignment, tools, context, output schema,
   async, retries, ...): edit `tasks/<name>.yaml` at the top level (outside
   the `fallback:` block) and bump `crew_version`.
+- **Change a Flow's topology or state model** (`@start`/`@listen`/`@router`
+  edits, state fields, swapping which crew it kicks off, post-processing):
+  bump the Flow class's `flow_version`. Do **not** bump `crew_version` —
+  that's a separate axis.
 - **Add a new crew:** see [§7 Extension Points](#7-extension-points).
 - **Update skill packs (for AI coding agents):** `npx skills update`. Re-group
   under `.agents/skills/<vendor>/` if new skills landed flatly.

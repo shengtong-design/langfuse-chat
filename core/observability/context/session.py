@@ -44,14 +44,27 @@ def _streamlit_session_id() -> str:
         return os.getenv("SESSION_ID", str(uuid4()))
 
 
-def make_run_context(crew_name: str = "", crew_version: str = "") -> RunContext:
+def make_run_context(
+    crew_name: str = "",
+    crew_version: str = "",
+    *,
+    flow_name: str = "",
+    flow_version: str = "",
+) -> RunContext:
     """Create a RunContext for one crew run.
 
     session_id is scoped to the browser tab so all runs from one tab group in
     Langfuse. workflow_id defaults to run_id via the RunContext.workflow_id property.
-    crew_version identifies the crew recipe (semver on the crew class); pass it
-    from the caller via e.g. ResearchCrew.crew_version. Per-run prompt versions
-    are recorded separately on the root span as agents_signature.
+
+    Identity is recorded on two independent axes:
+      - crew_name / crew_version  → which crew recipe ran (e.g. ResearchCrew@1.0.0)
+      - flow_name / flow_version  → which flow recipe orchestrated it
+        (e.g. ResearchFlow@1.0.0). Same as the crew today (1:1 mapping), but
+        these diverge once a flow orchestrates multiple crews, branches via
+        @router, or evolves its state/post-processing independently of any crew.
+
+    Per-run prompt resolution is recorded separately on the root span as
+    agents_signature / tasks_signature.
     """
     environment = os.getenv("ENVIRONMENT", "dev")
     env_cfg = _load_env_config(environment)
@@ -66,7 +79,9 @@ def make_run_context(crew_name: str = "", crew_version: str = "") -> RunContext:
         environment=environment,
         app_version=_read_app_version(),
         crew_name=crew_name,
+        flow_name=flow_name,
         crew_version=crew_version,
+        flow_version=flow_version,
         deployment_sha=env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", ""),
         model_version=env_cfg.get("model_defaults", {}).get("default", "") or os.getenv("MODEL_VERSION", ""),
     )
