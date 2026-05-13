@@ -61,3 +61,6 @@ class EnrichedConnectorManager:
 
     def flush(self) -> None:
         self._base.flush()
+
+    def update_run_context(self, context: Any) -> None:
+        self._base.update_run_context(context)

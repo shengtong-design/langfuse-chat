@@ -1,0 +1,4 @@
+task_name: research
+agent: researcher
+description: 'Research the question: "{question}"'
+expected_output: A clear, concise answer with key points and 1-3 examples if applicable.

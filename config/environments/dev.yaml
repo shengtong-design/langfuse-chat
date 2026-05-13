@@ -1,0 +1,8 @@
+environment: dev
+app_version: "1.0.0"
+deployment_sha: "local"
+crew_versions:
+  researcher: "1.0.0"
+  fitness_training: "1.0.0"
+model_defaults:
+  default: gpt-4o-mini

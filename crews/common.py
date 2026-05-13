@@ -2,7 +2,7 @@
 import contextlib
 import io
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -10,9 +10,9 @@ log = logging.getLogger(__name__)
 def kickoff_crew(
     crew: Any,
     obs: Any,
-    input_data: Dict[str, Any] = None,
+    input_data: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, str, str]:
-    """Run crew.kickoff() inside a crew.kickoff span with captured stdout/stderr.
+    """Run crew.kickoff(inputs=...) inside a span with captured stdout/stderr.
 
     Returns (CrewOutput, stdout, stderr). Raises on failure after updating the
     span with error context so the exception still propagates to the caller.
@@ -22,7 +22,7 @@ def kickoff_crew(
     with obs.span("crew.kickoff", "span", input_data=input_data) as kickoff:
         try:
             with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                result = crew.kickoff()
+                result = crew.kickoff(inputs=input_data or {})
             stdout, stderr = stdout_buf.getvalue(), stderr_buf.getvalue()
             kickoff.update(output={"result": str(result), "stdout": stdout, "stderr": stderr})
             return result, stdout, stderr

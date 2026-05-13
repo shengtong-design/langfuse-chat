@@ -1,13 +1,15 @@
 """
-Langfuse Dataset Experiment Runner for CrewAI Researcher.
+Langfuse Dataset Experiment Runner — ResearchFlow.
 
-Runs the researcher crew against the crew-research-eval dataset in Langfuse
-and logs results for evaluation. Uses the same modular crew/connector
+Runs the research flow against the crew-research-eval dataset in Langfuse
+and logs results for evaluation. Uses the same flows/crews/observability
 architecture as crew_app.py.
 
 Required env vars:
-  - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
-  - OPENAI_API_KEY
+  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, OPENAI_API_KEY
+
+Optional:
+  LANGFUSE_BASE_URL  (default: https://cloud.langfuse.com)
 
 Run:
   py -3.12 run_experiment.py
@@ -22,13 +24,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-from opentelemetry import trace
 from langfuse import Langfuse
 
-from core.crews.researcher import ResearcherCrew
-from core.crews.common import extract_question
 from core.observability import ConnectorManager
 from core.observability.langfuse_connector import LangfuseConnector
+from crews.common import extract_question
+from flows.research_flow import ResearchFlow
 
 langfuse = Langfuse(
     public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
@@ -45,16 +46,15 @@ def main() -> None:
     items = list(dataset.items)
     print(f"Running experiment '{EXPERIMENT_NAME}' on {len(items)} items...")
 
-    obs = ConnectorManager([LangfuseConnector(langfuse)])
-    crew = ResearcherCrew()
+    connectors = ConnectorManager([LangfuseConnector(langfuse)])
 
     def task(item):
         q = extract_question(item.input)
-        trace.get_current_span().update_name(q)
         print(f"Question: {q}")
-        result = crew.run({"question": q}, obs)
-        answer = result["result"]
-        print(f"Answer (preview): {answer[:100]}...")
+        flow = ResearchFlow(connectors_factory=lambda: connectors, langfuse_client=langfuse)
+        result = flow.kickoff(inputs={"question": q})
+        answer = result.get("result", "") if isinstance(result, dict) else str(result)
+        print(f"Answer (preview): {str(answer)[:100]}...")
         return answer
 
     langfuse.run_experiment(

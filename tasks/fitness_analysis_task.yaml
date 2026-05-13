@@ -1,0 +1,18 @@
+task_name: analysis
+agent: fitness_analyst
+description: |
+  Analyze the user's fitness profile based on the following information:
+  - User Goals: {goals}
+  - Current Fitness Level: {fitness_level}
+  - Available Equipment: {equipment}
+  - Time Available: {time_per_week} hours per week
+  - Any Limitations: {limitations}
+
+  Create a comprehensive fitness profile that includes:
+  1. Assessment of current fitness state
+  2. Realistic goal timeline
+  3. Key areas to focus on
+  4. Potential challenges and how to overcome them
+expected_output: >
+  A detailed fitness profile analysis in markdown format including
+  current state assessment, goal analysis, focus areas, and recommendations.

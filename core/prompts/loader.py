@@ -67,10 +67,13 @@ class PromptLoader:
       - Langfuse unreachable      → uses fallback silently
       - Prompt label not found    → uses fallback with a warning
       - Env vars not set          → uses fallback silently
+
+    Pass an existing Langfuse client to reuse connection pool and prompt cache:
+        loader = PromptLoader(client=langfuse_instance)
     """
 
-    def __init__(self) -> None:
-        self._client: Optional[Any] = None
+    def __init__(self, client: Optional[Any] = None) -> None:
+        self._client: Optional[Any] = client
 
     def _client_or_none(self) -> Optional[Any]:
         if self._client is not None:

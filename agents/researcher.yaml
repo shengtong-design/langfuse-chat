@@ -1,0 +1,12 @@
+agent_name: researcher
+langfuse_prompt_key: researcher_agent
+verbose: true
+allow_delegation: false
+# role/goal/backstory come from Langfuse at runtime.
+# fallback is used only when Langfuse is unreachable.
+fallback:
+  role: Researcher
+  goal: Research the user's question and answer clearly and accurately.
+  backstory: >
+    You are a diligent researcher who writes concise, well-structured
+    answers with examples.

@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from typing import Any, Callable, Dict
+
+from crewai.flow.flow import Flow, start
+from pydantic import BaseModel
+
+
+class FitnessState(BaseModel):
+    goals: str = ""
+    fitness_level: str = "beginner"
+    equipment: str = ""
+    time_per_week: int = 5
+    limitations: str = "None specified"
+    result: str = ""
+    prompt_versions: Dict[str, str] = {}
+    stdout: str = ""
+    stderr: str = ""
+
+
+class FitnessFlow(Flow[FitnessState]):
+    """Orchestrates the FitnessCrew to produce a personalized fitness plan.
+
+    Usage:
+        flow = FitnessFlow(connectors_factory=_get_connectors, langfuse_client=lf)
+        result = flow.kickoff(inputs={"goals": "...", "fitness_level": "beginner", ...})
+    """
+
+    def __init__(
+        self,
+        connectors_factory: Callable,
+        langfuse_client: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._connectors_factory = connectors_factory
+        self._langfuse_client = langfuse_client
+
+    @start()
+    def run_fitness_plan(self) -> Dict[str, Any]:
+        from core.observability.context import EnrichedConnectorManager, make_run_context
+        from crews.fitness_crew import FitnessCrew
+
+        inputs = {
+            "goals": self.state.goals,
+            "fitness_level": self.state.fitness_level,
+            "equipment": self.state.equipment,
+            "time_per_week": self.state.time_per_week,
+            "limitations": self.state.limitations,
+        }
+        obs = EnrichedConnectorManager(
+            self._connectors_factory(),
+            make_run_context("fitness_training"),
+        )
+        data = FitnessCrew().run(
+            inputs,
+            obs,
+            langfuse_client=self._langfuse_client,
+        )
+        obs.flush()
+        self.state.result = data.get("result", "")
+        self.state.prompt_versions = data.get("prompt_versions", {})
+        self.state.stdout = data.get("stdout", "")
+        self.state.stderr = data.get("stderr", "")
+        return data

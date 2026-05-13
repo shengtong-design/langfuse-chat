@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+import yaml
+
+if TYPE_CHECKING:
+    from core.observability.base import ObsManager
+
+_AGENTS_DIR = Path(__file__).parent.parent / "agents"
+_TASKS_DIR = Path(__file__).parent.parent / "tasks"
+
+
+class BaseCrew(ABC):
+    """Template-method base for all crews.
+
+    Subclasses must implement:
+      - crew_name         → str
+      - _agent_yaml_names → list of filenames in agents/ (e.g. ["researcher.yaml"])
+      - _task_yaml_names  → list of filenames in tasks/, in execution order
+
+    Subclasses may override:
+      - _format_result(crew_result, task_outputs) → str  for custom output formatting
+    """
+
+    @property
+    @abstractmethod
+    def crew_name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def _agent_yaml_names(self) -> List[str]: ...
+
+    @property
+    @abstractmethod
+    def _task_yaml_names(self) -> List[str]: ...
+
+    def _format_result(self, crew_result: Any, task_outputs: List[Any]) -> str:
+        return str(crew_result)
+
+    def run(
+        self,
+        inputs: Dict[str, Any],
+        obs: "ObsManager",
+        langfuse_client: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        from crewai import Agent, Crew, Task
+        from core.observability.context.callbacks import get_crew_kwargs
+        from core.prompts import PromptLoader
+
+        agent_specs = {
+            Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
+            for n in self._agent_yaml_names
+        }
+        task_specs = [
+            yaml.safe_load((_TASKS_DIR / n).read_text())
+            for n in self._task_yaml_names
+        ]
+
+        loader = PromptLoader(client=langfuse_client)
+        agents: Dict[str, Agent] = {}
+        prompts = {}
+        for name, spec in agent_specs.items():
+            prompt = loader.get(
+                spec["langfuse_prompt_key"],
+                fallback=spec.get("fallback", {}),
+            )
+            prompts[name] = prompt
+            agents[name] = Agent(
+                **prompt.config,
+                verbose=spec.get("verbose", True),
+                allow_delegation=spec.get("allow_delegation", False),
+            )
+
+        tasks = [
+            Task(
+                description=spec["description"].format(**inputs),
+                expected_output=spec["expected_output"],
+                agent=agents[spec["agent"]],
+            )
+            for spec in task_specs
+        ]
+
+        crew = Crew(
+            agents=list(agents.values()),
+            tasks=tasks,
+            verbose=True,
+            **get_crew_kwargs(obs),
+        )
+
+        prompt_meta = {
+            f"agent.{name}.prompt_version": p.version
+            for name, p in prompts.items()
+        }
+
+        from crews.common import kickoff_crew
+        with obs.span(
+            self.crew_name, "chain",
+            input_data=inputs,
+            metadata={"framework": "crewai", "crew": self.crew_name, **prompt_meta},
+        ) as root:
+            result, stdout, stderr = kickoff_crew(crew, obs, input_data=inputs)
+            output = self._format_result(result, result.tasks_output or [])
+            root.update(output={"result": output})
+            return {
+                "result": output,
+                "stdout": stdout,
+                "stderr": stderr,
+                "prompt_versions": prompt_meta,
+            }

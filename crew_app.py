@@ -1,27 +1,24 @@
 """
-Streamlit app: multi-crew runner with modular observability.
+Streamlit app: multi-crew runner with flows, crews, and modular observability.
 
-Crews (core/crews/):
-  - researcher        General Q&A research
-  - fitness_training  Personalized fitness plan (analysis + workout + nutrition)
-
-Observability connectors (core/observability/):
-  - Langfuse   always active when LANGFUSE_PUBLIC_KEY is set
-  - Datadog    active when DD_LLMOBS_ENABLED=1
+Architecture:
+  flows/    — CrewAI Flow entry points (research_flow, fitness_flow)
+  crews/    — Crew implementations (research_crew, fitness_crew)
+  agents/   — Agent YAML config (metadata only; prompts live in Langfuse)
+  tasks/    — Task YAML config (descriptions + expected outputs)
+  core/observability/ — Langfuse + Datadog connectors
 
 To add a new connector: create core/observability/<name>.py, subclass BaseConnector,
 add an instance to _get_connectors() below.
 
-To add a new crew: create core/crews/<name>.py, subclass BaseCrew,
-add it to core/crews/__init__.py CREWS dict.
+To add a new crew: create agents/<n>.yaml, tasks/<n>_task.yaml,
+crews/<n>_crew.py (subclass BaseCrew), add a flow in flows/<n>_flow.py.
 
 Required env vars:
-  - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
-  - OPENAI_API_KEY
+  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, OPENAI_API_KEY
 
 Datadog (optional):
-  - DD_LLMOBS_ENABLED=1
-  - DD_API_KEY, DD_SITE, DD_LLMOBS_ML_APP, DD_LLMOBS_AGENTLESS_ENABLED=1
+  DD_LLMOBS_ENABLED=1, DD_API_KEY, DD_SITE, DD_LLMOBS_ML_APP
 
 Run:
   py -3.12 -m streamlit run crew_app.py
@@ -45,12 +42,9 @@ def _init_datadog_llmobs() -> bool:
     if os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
         return False
     if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
-        return True  # ddtrace-run handles init externally
+        return True
     try:
         os.environ.setdefault("DD_TRACE_ENABLED", "0")
-        # Silence ddtrace logger warnings — Streamlit Cloud has no ASGI trace
-        # middleware, so ddtrace emits "context not present in ASGI request scope"
-        # on every request. Agentless LLMObs doesn't need ASGI correlation.
         import logging
         logging.getLogger("ddtrace").setLevel(logging.ERROR)
         from ddtrace.llmobs import LLMObs
@@ -70,25 +64,24 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
-# On Streamlit Cloud hot-reload, stale partial entries for 'core' and its
-# sub-packages can be left in sys.modules, causing KeyError: 'core' on the
-# next import. Purging them here ensures a clean re-import every run.
+# Purge local packages from sys.modules on hot-reload to prevent KeyError on re-import.
 import sys as _sys
-for _k in [k for k in _sys.modules if k == "core" or k.startswith("core.")]:
+for _k in [k for k in _sys.modules
+           if k in ("core", "crews", "flows") or
+           k.startswith("core.") or k.startswith("crews.") or k.startswith("flows.")]:
     del _sys.modules[_k]
 
 from datetime import datetime
 from typing import Any, Dict
 
 import streamlit as st
-from opentelemetry import trace
 
-from core.crews import CREWS
-from core.crews.common import extract_question
 from core.observability import ConnectorManager
-from core.observability.context import EnrichedConnectorManager, make_run_context
 from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
+from core.observability.context import make_run_context, EnrichedConnectorManager
+from crews.common import extract_question
+from flows import FitnessFlow, ResearchFlow
 
 
 def _require_env(name: str) -> str:
@@ -108,6 +101,7 @@ def _get_langfuse():
     )
 
 
+@st.cache_resource
 def _get_connectors() -> ConnectorManager:
     return ConnectorManager([
         LangfuseConnector(_get_langfuse()),
@@ -115,18 +109,16 @@ def _get_connectors() -> ConnectorManager:
     ])
 
 
-def _run_crew(crew_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a context-enriched obs, run the named crew, flush, and return data."""
-    obs = EnrichedConnectorManager(_get_connectors(), make_run_context(crew_name))
-    data = CREWS[crew_name]().run(inputs, obs)
-    obs.flush()
-    return data
+def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Instantiate a flow, kick it off, and return the result dict."""
+    flow = flow_cls(connectors_factory=_get_connectors, langfuse_client=_get_langfuse())
+    return flow.kickoff(inputs=inputs)
 
 
 def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool = False) -> None:
     """Render crew result and collapsible stdout/stderr."""
     st.subheader(heading)
-    (st.markdown if markdown else st.write)(data["result"])
+    (st.markdown if markdown else st.write)(data.get("result", ""))
     if data.get("prompt_versions"):
         with st.expander("Prompt versions loaded", expanded=False):
             for key, ver in data["prompt_versions"].items():
@@ -163,7 +155,7 @@ with tab_research:
     if research_btn:
         try:
             with st.spinner("Running researcher crew..."):
-                data = _run_crew("researcher", {"question": question.strip()})
+                data = _run_flow(ResearchFlow, {"question": question.strip()})
             _show_output(data)
         except Exception as e:
             st.error(f"Failed: {e}")
@@ -196,7 +188,7 @@ with tab_fitness:
         else:
             try:
                 with st.spinner("Generating your personalized fitness plan (3 agents)..."):
-                    data = _run_crew("fitness_training", {
+                    data = _run_flow(FitnessFlow, {
                         "goals": goals.strip(),
                         "fitness_level": fitness_level,
                         "equipment": equipment.strip(),
@@ -235,15 +227,14 @@ with tab_experiment:
                 items = list(dataset.items)
                 st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
 
-                crew = CREWS["researcher"]()
-
                 def _task(item):
                     q = extract_question(item.input)
-                    trace.get_current_span().update_name(q)
-                    item_obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
-                    result = crew.run({"question": q}, item_obs)
-                    item_obs.flush()
-                    return result["result"]
+                    flow = ResearchFlow(
+                        connectors_factory=_get_connectors,
+                        langfuse_client=langfuse_client,
+                    )
+                    result = flow.kickoff(inputs={"question": q})
+                    return result.get("result", "") if isinstance(result, dict) else str(result)
 
                 with st.spinner(f"Running {len(items)} items — this may take a while..."):
                     langfuse_client.run_experiment(
@@ -254,8 +245,6 @@ with tab_experiment:
                         max_concurrency=1,
                         metadata={"framework": "crewai", "runner": "crew_app.py"},
                     )
-
-                _get_connectors().flush()
                 st.success(f"Experiment **{experiment_name}** complete!")
                 st.caption(f"Check Langfuse → Datasets → {dataset_name} → Experiments")
             except Exception as e:

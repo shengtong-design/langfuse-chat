@@ -1,0 +1,14 @@
+task_name: nutrition
+agent: nutrition_advisor
+description: |
+  Create nutrition recommendations that support the workout program and goals:
+  1. Daily caloric needs estimate
+  2. Macronutrient recommendations
+  3. Meal timing suggestions around workouts
+  4. Hydration guidelines
+  5. Supplement recommendations (if appropriate)
+
+  User's goal: {goals}
+expected_output: >
+  Nutrition guidelines in markdown format including calorie and macro
+  recommendations, meal timing, and practical eating suggestions.

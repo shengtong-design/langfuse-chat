@@ -19,9 +19,12 @@ _TYPE_TO_DD = {
 class DatadogSpanHandle(SpanHandle):
     def __init__(self) -> None:
         self._output: Optional[Any] = None
+        self._error: bool = False
 
     def update(self, output: Any = None, level: str = "DEFAULT") -> None:
         self._output = output
+        if level == "ERROR":
+            self._error = True
 
 
 class DatadogConnector(BaseConnector):
@@ -85,6 +88,8 @@ class DatadogConnector(BaseConnector):
             finally:
                 if handle._output is not None:
                     LLMObs.annotate(output_data=handle._output)
+                if handle._error:
+                    LLMObs.annotate(metadata={"error": True})
 
     def flush(self) -> None:
         if not self._active:

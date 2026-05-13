@@ -1,0 +1,26 @@
+dataset: crew-research-eval
+judge_model: gpt-4o-mini
+
+criteria:
+  - name: factual_accuracy
+    description: "Does the answer contain correct, verifiable facts?"
+    scale: "1-5"
+    weight: 0.4
+
+  - name: completeness
+    description: "Does the answer fully address all aspects of the question?"
+    scale: "1-5"
+    weight: 0.3
+
+  - name: conciseness
+    description: "Is the answer appropriately concise without losing key information?"
+    scale: "1-5"
+    weight: 0.2
+
+  - name: examples_quality
+    description: "Are the examples relevant, concrete, and helpful?"
+    scale: "1-5"
+    weight: 0.1
+
+# Promotion threshold: challenger must beat champion by >= 0.2 on weighted score
+promotion_threshold: 0.2
