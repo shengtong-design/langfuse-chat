@@ -56,14 +56,12 @@ def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
     return ({"step_type": type_name}, {"raw": str(step)[:500]})
 
 
-class CrewCallbacks:
-    """step_callback and task_callback implementations for CrewAI Crew()."""
-
+class _StepCallback:
+    """Callable wrapper so Pydantic sees a serialisable type, not a bound method."""
     def __init__(self, obs: Any) -> None:
         self._obs = obs
 
-    def on_agent_step(self, step_output: Any) -> None:
-        """Fires after each agent reasoning step (thought / tool use / observation)."""
+    def __call__(self, step_output: Any) -> None:
         try:
             input_data, output = _parse_step(step_output)
             with self._obs.span("agent.step", "agent", input_data=input_data) as h:
@@ -72,8 +70,13 @@ class CrewCallbacks:
         except Exception:
             log.debug("agent.step span failed", exc_info=True)
 
-    def on_task_complete(self, task_output: Any) -> None:
-        """Fires when each CrewAI Task finishes."""
+
+class _TaskCallback:
+    """Callable wrapper so Pydantic sees a serialisable type, not a bound method."""
+    def __init__(self, obs: Any) -> None:
+        self._obs = obs
+
+    def __call__(self, task_output: Any) -> None:
         try:
             result_str = str(getattr(task_output, "raw", task_output))[:2000]
             description = str(getattr(task_output, "description", ""))[:500]
@@ -85,6 +88,12 @@ class CrewCallbacks:
                 h.update(output={"result": result_str})
         except Exception:
             log.debug("task.complete span failed", exc_info=True)
+
+
+class CrewCallbacks:
+    def __init__(self, obs: Any) -> None:
+        self.on_agent_step = _StepCallback(obs)
+        self.on_task_complete = _TaskCallback(obs)
 
 
 def get_crew_kwargs(obs: Any) -> dict:
