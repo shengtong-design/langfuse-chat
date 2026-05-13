@@ -1,21 +1,27 @@
 """
 Langfuse Dataset Experiment Runner — ResearchFlow.
 
-Runs the research flow against the crew-research-eval dataset in Langfuse
-and logs results for evaluation. Uses the same flows/crews/observability
-architecture as crew_app.py.
+Runs the research flow against a Langfuse dataset and logs results for
+evaluation. Uses the same flows/crews/observability architecture as crew_app.py.
 
 Required env vars:
   LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, OPENAI_API_KEY
 
 Optional:
-  LANGFUSE_BASE_URL  (default: https://cloud.langfuse.com)
+  LANGFUSE_BASE_URL    (default: https://cloud.langfuse.com)
+  DATASET_NAME         (default: crew-research-eval)
+  EXPERIMENT_PREFIX    (default: crewai-researcher-v1)
 
-Run:
-  py -3.12 run_experiment.py
+Run from project root:
+  py -3.12 scripts/run_experiment.py
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path when run as a script.
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
 
@@ -37,8 +43,12 @@ langfuse = Langfuse(
     base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
 )
 
-DATASET_NAME = "crew-research-eval"
-EXPERIMENT_NAME = "crewai-researcher-v1-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+DATASET_NAME = os.getenv("DATASET_NAME", "crew-research-eval")
+EXPERIMENT_NAME = (
+    os.getenv("EXPERIMENT_PREFIX", "crewai-researcher-v1")
+    + "-"
+    + datetime.now().strftime("%Y%m%d-%H%M%S")
+)
 
 
 def main() -> None:
@@ -63,7 +73,7 @@ def main() -> None:
         data=items,
         task=task,
         max_concurrency=1,
-        metadata={"framework": "crewai", "runner": "run_experiment.py"},
+        metadata={"framework": "crewai", "runner": "scripts/run_experiment.py"},
     )
 
     langfuse.flush()
