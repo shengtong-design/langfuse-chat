@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Revio Multi-Crew Runner — System Documentation</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+      color: #1a1a2e;
+      background: #f6f8fa;
+    }
+
+    /* ── Layout ── */
+    .layout { display: flex; min-height: 100vh; }
+
+    nav {
+      width: 260px;
+      min-width: 260px;
+      background: #0f172a;
+      color: #94a3b8;
+      padding: 28px 0 40px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    nav .nav-logo {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #e2e8f0;
+      padding: 0 24px 20px;
+      border-bottom: 1px solid #1e293b;
+      margin-bottom: 16px;
+    }
+
+    nav a {
+      display: block;
+      padding: 5px 24px;
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 3px solid transparent;
+      transition: color .15s, border-color .15s;
+    }
+
+    nav a:hover { color: #e2e8f0; border-left-color: #6366f1; }
+    nav .nav-section {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #475569;
+      padding: 16px 24px 4px;
+    }
+
+    main {
+      flex: 1;
+      min-width: 0;
+      padding: 48px 56px 80px;
+      max-width: 960px;
+    }
+
+    /* ── Typography ── */
+    h1 { font-size: 28px; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+    h2 {
+      font-size: 20px; font-weight: 700; color: #0f172a;
+      margin-top: 52px; margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    h3 { font-size: 16px; font-weight: 700; color: #1e293b; margin-top: 28px; margin-bottom: 10px; }
+    h4 { font-size: 14px; font-weight: 700; color: #334155; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+
+    p { margin-bottom: 14px; color: #334155; }
+
+    .subtitle {
+      font-size: 15px;
+      color: #64748b;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    /* ── Capability grid ── */
+    .capability-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .cap-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .cap-card .cap-title { font-size: 12px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .cap-card .cap-body  { font-size: 13px; color: #475569; }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; margin: 16px 0 24px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13.5px; }
+    thead th { background: #f1f5f9; color: #334155; font-weight: 700; text-align: left; padding: 10px 14px; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+    tbody td { padding: 9px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #475569; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #fafafa; }
+    code { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; font-size: 12.5px; background: #f1f5f9; color: #6366f1; padding: 2px 5px; border-radius: 4px; }
+
+    /* ── Code blocks ── */
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 20px 22px;
+      overflow-x: auto;
+      margin: 16px 0 24px;
+      font-size: 13px;
+      line-height: 1.7;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    }
+    pre .comment  { color: #64748b; }
+    pre .highlight { color: #a78bfa; }
+    pre .string   { color: #86efac; }
+    pre .keyword  { color: #7dd3fc; }
+
+    /* ── Callout ── */
+    .callout {
+      background: #eff6ff;
+      border-left: 4px solid #6366f1;
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin: 16px 0 24px;
+      font-size: 13.5px;
+      color: #1e40af;
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      letter-spacing: .04em;
+    }
+    .badge-required { background: #fee2e2; color: #b91c1c; }
+    .badge-optional { background: #dcfce7; color: #15803d; }
+    .badge-default  { background: #f1f5f9; color: #475569; }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid #e2e8f0; margin: 32px 0; }
+
+    ul { margin: 8px 0 16px 20px; color: #475569; }
+    ul li { margin-bottom: 5px; }
+    ol { margin: 8px 0 16px 20px; color: #475569; }
+    ol li { margin-bottom: 5px; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <nav>
+    <div class="nav-logo">Revio Multi-Crew Runner</div>
+
+    <div class="nav-section">Getting Started</div>
+    <a href="#overview">Overview</a>
+    <a href="#layout">Repository Layout</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#running-locally">Running Locally</a>
+
+    <div class="nav-section">Crews</div>
+    <a href="#researcher-crew">ResearcherCrew</a>
+    <a href="#fitness-crew">FitnessTrainingCrew</a>
+    <a href="#adding-crew">Adding a New Crew</a>
+
+    <div class="nav-section">Observability</div>
+    <a href="#span-hierarchy">Span Hierarchy</a>
+    <a href="#connector-manager">ConnectorManager</a>
+    <a href="#langfuse-connector">Langfuse Connector</a>
+    <a href="#datadog-connector">Datadog Connector</a>
+    <a href="#run-context">RunContext</a>
+
+    <div class="nav-section">Prompt Management</div>
+    <a href="#prompt-arch">Architecture</a>
+    <a href="#prompt-loader">PromptLoader</a>
+    <a href="#prompt-names">Prompt Names</a>
+    <a href="#promoting">Promoting Versions</a>
+    <a href="#seeding">Seeding Prompts</a>
+
+    <div class="nav-section">Experiments</div>
+    <a href="#experiments-ui">In-App Tab</a>
+    <a href="#experiments-cli">CLI Runner</a>
+
+    <div class="nav-section">Configuration</div>
+    <a href="#env-required">Required Env Vars</a>
+    <a href="#env-optional">Optional Env Vars</a>
+
+    <div class="nav-section">Deployment</div>
+    <a href="#deployment">Streamlit Cloud</a>
+    <a href="#adding-connector">Adding a Connector</a>
+    <a href="#design-decisions">Design Decisions</a>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <main>
+
+    <!-- Overview -->
+    <h1 id="overview">Revio Multi-Crew Runner</h1>
+    <p class="subtitle">System documentation — architecture, crews, observability, prompt management, and deployment.</p>
+
+    <p>Revio Multi-Crew Runner is a Streamlit application that runs multi-agent AI workflows (crews) built with CrewAI. Every run is fully observable: spans are sent to <strong>Langfuse</strong> (and optionally <strong>Datadog LLMObs</strong>). Agent prompts are managed at runtime via <strong>Langfuse Prompt Management</strong>, so prompt versions can be promoted without redeploying.</p>
+
+    <div class="capability-grid">
+      <div class="cap-card"><div class="cap-title">Multi-crew UI</div><div class="cap-body">Streamlit tabs for Research and Fitness Training</div></div>
+      <div class="cap-card"><div class="cap-title">Evaluation</div><div class="cap-body">Built-in Experiments tab + CLI runner for batch eval</div></div>
+      <div class="cap-card"><div class="cap-title">Observability</div><div class="cap-body">Langfuse traces + Datadog LLMObs, both pluggable</div></div>
+      <div class="cap-card"><div class="cap-title">Prompt Management</div><div class="cap-body">Prompts live in Langfuse with YAML fallback</div></div>
+      <div class="cap-card"><div class="cap-title">Prompt Versioning</div><div class="cap-body">Every trace records prompt name, version, and label</div></div>
+      <div class="cap-card"><div class="cap-title">Sessions</div><div class="cap-body">One Langfuse session per crew run</div></div>
+    </div>
+
+    <!-- Layout -->
+    <h2 id="layout">Repository Layout</h2>
+    <pre>
+crew_app.py              <span class="comment"># Streamlit entry point</span>
+run_experiment.py        <span class="comment"># CLI experiment runner (batch eval)</span>
+seed_prompts.py          <span class="comment"># One-time Langfuse prompt bootstrap</span>
+requirements.txt         <span class="comment"># Pinned dependency versions</span>
+
+core/
+  crews/
+    __init__.py          <span class="comment"># CREWS registry {name: class}</span>
+    base.py              <span class="comment"># BaseCrew abstract class</span>
+    common.py            <span class="comment"># kickoff_crew(), extract_question()</span>
+    researcher.py        <span class="comment"># ResearcherCrew</span>
+    researcher.yaml      <span class="comment"># Researcher agent/task config</span>
+    fitness_training.py  <span class="comment"># FitnessTrainingCrew</span>
+    fitness_training.yaml<span class="comment"># Fitness agents/tasks/output_sections</span>
+
+  observability/
+    __init__.py          <span class="comment"># ConnectorManager (fan-out)</span>
+    base.py              <span class="comment"># BaseConnector, SpanHandle, ObsManager</span>
+    langfuse_connector.py<span class="comment"># Langfuse implementation</span>
+    datadog_connector.py <span class="comment"># Datadog LLMObs implementation</span>
+    context/
+      enriched.py        <span class="comment"># EnrichedConnectorManager</span>
+      callbacks.py       <span class="comment"># CrewAI step/task callback wrappers</span>
+      run_context.py     <span class="comment"># RunContext dataclass</span>
+      session.py         <span class="comment"># make_run_context() factory</span>
+
+  prompts/
+    loader.py            <span class="comment"># PromptLoader (Langfuse fetch + YAML fallback)</span></pre>
+
+    <!-- Architecture -->
+    <h2 id="architecture">Architecture</h2>
+    <pre>
+crew_app.py (Streamlit)
+    │
+    ├─ _get_langfuse()           <span class="comment">@st.cache_resource — one client per process</span>
+    ├─ _get_connectors()         ConnectorManager([LangfuseConnector, DatadogConnector])
+    │
+    └─ _run_crew(crew_name, inputs)
+           │
+           ├─ make_run_context(crew_name)   → RunContext (session_id, run_id, user_id …)
+           ├─ EnrichedConnectorManager(connectors, context)
+           │       injects RunContext into every span's metadata
+           │       pushes session_id / user_id to each connector
+           │       exposes crew_callbacks for CrewAI step/task hooks
+           │
+           └─ CREWS[crew_name]().run(inputs, obs)
+                   │
+                   ├─ PromptLoader.get(name, fallback=yaml_spec)
+                   │       fetches from Langfuse (label="production")
+                   │       merges {**yaml_fallback, **langfuse_config}
+                   │       returns PromptResult(config, version, name, label)
+                   │
+                   ├─ crewai.Agent(**prompt.config)
+                   ├─ crewai.Crew(agents, tasks, step_callback, task_callback)
+                   │
+                   └─ obs.span("crewai.research", "chain", metadata={…prompt versions…})
+                           └─ kickoff_crew(crew, obs)
+                                   step_callback → obs.span("agent.step",    "agent")
+                                   task_callback → obs.span("task.complete", "span")</pre>
+
+    <!-- Running Locally -->
+    <h2 id="running-locally">Running Locally</h2>
+    <pre>
+<span class="comment"># Install dependencies</span>
+pip install -r requirements.txt
+
+<span class="comment"># Set env vars (or create .env)</span>
+<span class="comment"># LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, OPENAI_API_KEY</span>
+
+<span class="comment"># Seed Langfuse prompts (first time only)</span>
+py -3.12 seed_prompts.py
+
+<span class="comment"># Start the app</span>
+py -3.12 -m streamlit run crew_app.py</pre>
+
+    <hr />
+
+    <!-- Crews -->
+    <h2 id="researcher-crew">ResearcherCrew</h2>
+    <p>Single-agent general-purpose research crew. Config: <code>core/crews/researcher.yaml</code>. Crew name: <code>crewai.researcher</code>.</p>
+
+    <h4>Agents</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Role</th><th>Langfuse prompt key</th></tr></thead>
+        <tbody>
+          <tr><td><code>agent</code></td><td>Researcher</td><td><code>researcher_agent</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Inputs</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>question</code></td><td>str</td><td>The research question to answer</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Output</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>result</code></td><td>Plain-text research answer</td></tr>
+          <tr><td><code>stdout</code></td><td>Captured stdout from crew execution</td></tr>
+          <tr><td><code>stderr</code></td><td>Captured stderr from crew execution</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="fitness-crew">FitnessTrainingCrew</h2>
+    <p>Three-agent crew that produces a personalized fitness plan: analysis → workout design → nutrition. Config: <code>core/crews/fitness_training.yaml</code>. Crew name: <code>crewai.fitness_training</code>.</p>
+
+    <h4>Agents</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Role</th><th>Langfuse prompt key</th></tr></thead>
+        <tbody>
+          <tr><td><code>fitness_analyst</code></td><td>Fitness Analyst</td><td><code>fitness_fitness_analyst</code></td></tr>
+          <tr><td><code>workout_designer</code></td><td>Workout Program Designer</td><td><code>fitness_workout_designer</code></td></tr>
+          <tr><td><code>nutrition_advisor</code></td><td>Nutrition Advisor</td><td><code>fitness_nutrition_advisor</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Inputs</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>goals</code></td><td>str</td><td>User's fitness goals</td></tr>
+          <tr><td><code>fitness_level</code></td><td>str</td><td><code>beginner</code> / <code>intermediate</code> / <code>advanced</code></td></tr>
+          <tr><td><code>equipment</code></td><td>str</td><td>Available equipment</td></tr>
+          <tr><td><code>time_per_week</code></td><td>int</td><td>Hours per week available for training</td></tr>
+          <tr><td><code>limitations</code></td><td>str</td><td>Injuries or restrictions (optional)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Output</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>result</code></td><td>Markdown fitness plan (3 sections stitched from task outputs)</td></tr>
+          <tr><td><code>stdout</code></td><td>Captured stdout</td></tr>
+          <tr><td><code>stderr</code></td><td>Captured stderr</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="adding-crew">Adding a New Crew</h2>
+    <ol>
+      <li>Create <code>core/crews/&lt;name&gt;.py</code> — subclass <code>BaseCrew</code>, implement <code>crew_name</code> and <code>run()</code>.</li>
+      <li>Create <code>core/crews/&lt;name&gt;.yaml</code> — define <code>agents</code> and <code>tasks</code>.</li>
+      <li>Register in <code>core/crews/__init__.py</code> → <code>CREWS</code> dict.</li>
+      <li>Add seed entries to <code>seed_prompts.py</code> → <code>PROMPTS</code> list.</li>
+      <li>Add a UI tab in <code>crew_app.py</code>.</li>
+    </ol>
+
+    <hr />
+
+    <!-- Observability -->
+    <h2 id="span-hierarchy">Span Hierarchy (per run)</h2>
+    <pre>
+crewai.research          [chain]   root — input + output + prompt versions in metadata
+  crew.kickoff           [span]    wraps crew.kickoff(); captures stdout / stderr
+    agent.step           [agent]   fires for every reasoning step (truncated to 2000 chars)
+    task.complete        [span]    fires when each Task finishes</pre>
+
+    <h2 id="connector-manager">ConnectorManager</h2>
+    <p>Fan-out coordinator in <code>core/observability/__init__.py</code>. Receives a list of <code>BaseConnector</code> instances; on every <code>span()</code> call it opens a span on all enabled connectors simultaneously and returns a <code>MultiSpanHandle</code> that broadcasts <code>update()</code> to all.</p>
+    <p><strong>EnrichedConnectorManager</strong> (<code>core/observability/context/enriched.py</code>) wraps <code>ConnectorManager</code>. On construction it calls <code>update_run_context(context)</code> on each connector and merges <code>RunContext.as_metadata()</code> into every span automatically. It also exposes <code>crew_callbacks</code> — the <code>get_crew_kwargs(obs)</code> helper uses duck-typing to wire CrewAI callbacks if the addon is active.</p>
+
+    <h2 id="langfuse-connector">Langfuse Connector</h2>
+    <p>Uses Langfuse SDK v4 <code>start_as_current_observation()</code>. For each span it calls <code>propagate_attributes(session_id, user_id, tags)</code> inside the span context, propagating values to child spans via OpenTelemetry baggage.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Span field</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td>e.g. <code>crewai.research</code></td></tr>
+          <tr><td><code>as_type</code></td><td>Langfuse type: <code>chain</code>, <code>span</code>, <code>agent</code></td></tr>
+          <tr><td><code>input</code></td><td><code>input_data</code> dict</td></tr>
+          <tr><td><code>metadata</code></td><td>Merged RunContext + prompt versions</td></tr>
+          <tr><td><code>output</code></td><td>Set via <code>span_handle.update(output=…)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="datadog-connector">Datadog Connector</h2>
+    <p>Wraps <code>ddtrace.llmobs.LLMObs</code>. Active only when <code>DD_LLMOBS_ENABLED=1</code>. Uses <code>agentless_enabled=True</code> for Streamlit Cloud (no Datadog Agent sidecar).</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Internal type</th><th>Datadog kind</th></tr></thead>
+        <tbody>
+          <tr><td><code>chain</code></td><td><code>workflow</code></td></tr>
+          <tr><td><code>span</code></td><td><code>task</code></td></tr>
+          <tr><td><code>agent</code></td><td><code>agent</code></td></tr>
+          <tr><td><code>tool</code></td><td><code>tool</code></td></tr>
+          <tr><td><code>generation</code></td><td><code>llm</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="run-context">RunContext</h2>
+    <p>Carries per-run identity metadata propagated to every span. Located in <code>core/observability/context/run_context.py</code>.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Default</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td><code>session_id</code></td><td>fresh UUID per run</td><td><code>make_run_context()</code></td></tr>
+          <tr><td><code>run_id</code></td><td>fresh UUID per run</td><td><code>make_run_context()</code></td></tr>
+          <tr><td><code>user_id</code></td><td><code>USER_ID</code> env or Streamlit session UUID</td><td>env var / Streamlit</td></tr>
+          <tr><td><code>environment</code></td><td><code>dev</code></td><td><code>ENVIRONMENT</code> env var</td></tr>
+          <tr><td><code>app_version</code></td><td><code>1.0.0</code></td><td><code>APP_VERSION</code> env var</td></tr>
+          <tr><td><code>crew_name</code></td><td>caller-supplied</td><td><code>_run_crew()</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>as_tags()</code> → Langfuse list: <code>["env:dev", "crew:researcher", "version:1.0.0"]</code><br/>
+       <code>as_dd_tags()</code> → Datadog dict: <code>{"env": "dev", "crew": "researcher", "version": "1.0.0"}</code></p>
+
+    <hr />
+
+    <!-- Prompt Management -->
+    <h2 id="prompt-arch">Prompt Management Architecture</h2>
+    <pre>
+GitHub YAML  ──►  YAML fallback  ──►  deterministic default contract
+Langfuse UI  ──►  runtime config ──►  rapidly-evolving AI behavior</pre>
+    <p>YAML defines the starting-point defaults. Langfuse overrides them at runtime. Crews always work — even if Langfuse is unreachable — because the YAML fallback is always applied first.</p>
+
+    <h2 id="prompt-loader">PromptLoader</h2>
+    <pre>
+loader = PromptLoader()
+prompt = loader.get(
+    <span class="string">"researcher_agent"</span>,        <span class="comment"># Langfuse prompt name</span>
+    fallback=yaml_agent_spec,  <span class="comment"># dict: role, goal, backstory</span>
+    label=<span class="string">"production"</span>,          <span class="comment"># Langfuse rollout label</span>
+    cache_ttl=<span class="highlight">300</span>,              <span class="comment"># seconds (5-min local SDK cache)</span>
+)
+agent = Agent(**prompt.config)</pre>
+
+    <h4>Resolution Logic</h4>
+    <ol>
+      <li>If <code>LANGFUSE_PUBLIC_KEY</code> / <code>LANGFUSE_SECRET_KEY</code> are set, fetch from Langfuse.</li>
+      <li>Merge: <code>{**yaml_fallback, **langfuse_config}</code> — Langfuse values override YAML.</li>
+      <li>On any failure (network, prompt not found, missing env vars) → use YAML fallback silently.</li>
+    </ol>
+
+    <h4>PromptResult Fields</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>config</code></td><td>dict</td><td>Merged agent config: <code>role</code>, <code>goal</code>, <code>backstory</code></td></tr>
+          <tr><td><code>version</code></td><td>str</td><td>Langfuse version number, or <code>"fallback"</code></td></tr>
+          <tr><td><code>name</code></td><td>str</td><td>Prompt name</td></tr>
+          <tr><td><code>label</code></td><td>str</td><td>Langfuse label used</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="prompt-names">Prompt Names</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Prompt name</th><th>Crew</th><th>Agent</th></tr></thead>
+        <tbody>
+          <tr><td><code>researcher_agent</code></td><td>ResearcherCrew</td><td><code>agent</code></td></tr>
+          <tr><td><code>fitness_fitness_analyst</code></td><td>FitnessTrainingCrew</td><td><code>fitness_analyst</code></td></tr>
+          <tr><td><code>fitness_workout_designer</code></td><td>FitnessTrainingCrew</td><td><code>workout_designer</code></td></tr>
+          <tr><td><code>fitness_nutrition_advisor</code></td><td>FitnessTrainingCrew</td><td><code>nutrition_advisor</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="promoting">Promoting a New Prompt Version</h2>
+    <ol>
+      <li>Open Langfuse UI → <strong>Prompts</strong> → select prompt.</li>
+      <li>Click <strong>+ New version</strong> → edit <code>role</code>, <code>goal</code>, <code>backstory</code> in the Config block.</li>
+      <li>Move the <code>production</code> label to the new version.</li>
+      <li>Within ~5 minutes (cache TTL), all running crew instances pick up the new version.</li>
+      <li>Each Langfuse trace records <code>agent.&lt;name&gt;.prompt_version</code> in metadata — compare versions in the Traces view.</li>
+    </ol>
+    <div class="callout">
+      <strong>Champion / Challenger:</strong> Promote the challenger to <code>staging</code> label. Pass <code>label="staging"</code> in <code>PromptLoader.get()</code> for an experiment run. Compare in Langfuse Experiments, then move the <code>production</code> label when satisfied.
+    </div>
+
+    <h2 id="seeding">Seeding Initial Prompts</h2>
+    <p>Run once after first deploy or when adding a new crew:</p>
+    <pre>py -3.12 seed_prompts.py</pre>
+    <p>Creates version 1 of all 4 prompts in Langfuse, labeled <code>production</code>. Re-running creates new versions rather than overwriting.</p>
+
+    <hr />
+
+    <!-- Experiments -->
+    <h2 id="experiments-ui">Experiments — In-App Tab</h2>
+    <ul>
+      <li>Enter a Langfuse dataset name (default: <code>crew-research-eval</code>) and experiment prefix.</li>
+      <li>Runs ResearcherCrew against every dataset item with <code>max_concurrency=1</code>.</li>
+      <li>Each item gets its own <code>EnrichedConnectorManager</code> + fresh <code>RunContext</code>.</li>
+      <li>Results logged as Langfuse experiment runs — compare in Langfuse → Datasets → Experiments.</li>
+      <li>The form is locked while running (prevents double-submit).</li>
+    </ul>
+
+    <h2 id="experiments-cli">Experiments — CLI Runner</h2>
+    <pre>py -3.12 run_experiment.py</pre>
+    <p>Same logic as the UI tab. Useful for CI pipelines. Requires <code>LANGFUSE_PUBLIC_KEY</code>, <code>LANGFUSE_SECRET_KEY</code>, and <code>OPENAI_API_KEY</code>.</p>
+
+    <hr />
+
+    <!-- Env Vars -->
+    <h2 id="env-required">Required Environment Variables</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Used by</th></tr></thead>
+        <tbody>
+          <tr><td><code>LANGFUSE_PUBLIC_KEY</code></td><td>LangfuseConnector, PromptLoader, experiments</td></tr>
+          <tr><td><code>LANGFUSE_SECRET_KEY</code></td><td>LangfuseConnector, PromptLoader, experiments</td></tr>
+          <tr><td><code>OPENAI_API_KEY</code></td><td>CrewAI (passed to OpenAI via crewai internals)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="env-optional">Optional Environment Variables</h2>
+
+    <h3>Langfuse</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>LANGFUSE_BASE_URL</code></td><td><code>https://cloud.langfuse.com</code></td><td>Self-hosted Langfuse URL</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Identity / Environment</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>USER_ID</code></td><td>Streamlit session UUID</td><td>User ID propagated to Langfuse traces</td></tr>
+          <tr><td><code>ENVIRONMENT</code></td><td><code>dev</code></td><td>Tag on all spans (<code>env:prod</code>, etc.)</td></tr>
+          <tr><td><code>APP_VERSION</code></td><td><code>1.0.0</code></td><td>Tag on all spans (<code>version:1.0.0</code>)</td></tr>
+          <tr><td><code>SESSION_ID</code></td><td>auto</td><td>Override session ID for non-Streamlit runs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Datadog LLMObs</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>DD_LLMOBS_ENABLED</code></td><td><em>off</em></td><td>Set to <code>1</code> to activate Datadog connector</td></tr>
+          <tr><td><code>DD_API_KEY</code></td><td>—</td><td>Datadog API key</td></tr>
+          <tr><td><code>DD_SITE</code></td><td><code>datadoghq.com</code></td><td>Datadog site</td></tr>
+          <tr><td><code>DD_LLMOBS_ML_APP</code></td><td><code>crew-streamlit</code></td><td>ML app name in Datadog</td></tr>
+          <tr><td><code>DD_LLMOBS_AGENTLESS_ENABLED</code></td><td><code>true</code></td><td>Required on Streamlit Cloud (no agent sidecar)</td></tr>
+          <tr><td><code>DD_ENV</code></td><td>—</td><td>Datadog environment tag</td></tr>
+          <tr><td><code>DD_SERVICE</code></td><td><code>crew-streamlit</code></td><td>Datadog service name</td></tr>
+          <tr><td><code>DD_TRACE_LLMOBS_IN_CODE</code></td><td><code>1</code></td><td>Set to <code>0</code> if using <code>ddtrace-run</code> externally</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Misc</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>CREWAI_TELEMETRY_OPT_OUT</code></td><td><code>true</code> (forced)</td><td>Disables CrewAI's built-in telemetry</td></tr>
+          <tr><td><code>SEED_LABEL</code></td><td><code>production</code></td><td>Label used by <code>seed_prompts.py</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr />
+
+    <!-- Deployment -->
+    <h2 id="deployment">Streamlit Cloud Deployment</h2>
+    <p>Add all required env vars in Streamlit Cloud app settings under <strong>Secrets</strong> (TOML format).</p>
+
+    <h4>Pinned Dependency Versions</h4>
+    <p>Streamlit Cloud uses <code>uv</code> which strictly enforces version bounds. The following pins prevent known conflicts:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Package</th><th>Pin</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td><code>crewai</code></td><td><code>==1.14.4</code></td><td>Exact version; newer may change APIs</td></tr>
+          <tr><td><code>chromadb</code></td><td><code>==1.1.1</code></td><td>crewai requires <code>~=1.1.0</code>; <code>>=1.2.0</code> conflicts</td></tr>
+          <tr><td><code>pydantic</code></td><td><code>>=2.11.9,&lt;2.13</code></td><td>crewai needs <code>>=2.11.9</code>; chromadb pulls 2.11.7 transitively</td></tr>
+          <tr><td><code>openai</code></td><td><code>>=2.30.0,&lt;3.0.0</code></td><td>crewai requires <code>>=2.30.0</code>; older cap caused failure</td></tr>
+          <tr><td><code>langfuse</code></td><td><code>>=4.0.0,&lt;5.0.0</code></td><td>SDK v4 required; v3 no longer delivers traces to Langfuse Cloud</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Hot-Reload Fix</h4>
+    <p><code>crew_app.py</code> purges all <code>core.*</code> entries from <code>sys.modules</code> before importing them. This prevents <code>KeyError: 'core'</code> on Streamlit Cloud's hot-reload cycles.</p>
+
+    <h4>Datadog on Streamlit Cloud</h4>
+    <p>Must use <code>agentless_enabled=True</code> and <code>DD_TRACE_ENABLED=0</code> since there is no Datadog Agent sidecar. LLMObs is initialized before any OTel-using imports to avoid <em>"Overriding of current TracerProvider"</em> warnings.</p>
+
+    <h2 id="adding-connector">Adding a New Observability Connector</h2>
+    <ol>
+      <li>Create <code>core/observability/&lt;name&gt;_connector.py</code>.</li>
+      <li>Subclass <code>BaseConnector</code>; implement <code>enabled</code>, <code>span()</code>, <code>flush()</code>, <code>update_run_context()</code>.</li>
+      <li>Add an instance to the list in <code>_get_connectors()</code> in <code>crew_app.py</code>.</li>
+    </ol>
+    <p>No changes to crews, PromptLoader, or RunContext needed.</p>
+
+    <h2 id="design-decisions">Key Design Decisions</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Decision</th><th>Rationale</th></tr></thead>
+        <tbody>
+          <tr><td><code>ObsManager</code> as a Protocol</td><td>Crews import nothing from <code>core.observability</code>; structural typing avoids circular imports on Streamlit hot-reload</td></tr>
+          <tr><td><code>TYPE_CHECKING</code> guards in <code>enriched.py</code></td><td>Prevents re-import of <code>core.observability</code> while <code>crew_app.py</code> is still loading it</td></tr>
+          <tr><td>One session per run</td><td>Each crew run is a distinct Langfuse session; <code>user_id</code> still correlates the tab across runs</td></tr>
+          <tr><td><code>{**yaml_fallback, **langfuse_config}</code> merge</td><td>YAML is a complete working default; Langfuse overrides selectively — missing Langfuse keys transparently use YAML</td></tr>
+          <tr><td><code>cache_ttl_seconds=300</code></td><td>Langfuse SDK caches locally for 5 min; new label promotion is live within one cache window</td></tr>
+          <tr><td><code>@st.cache_resource</code> for Langfuse client</td><td>Single client per Streamlit worker process; avoids re-authenticating on every rerun</td></tr>
+          <tr><td><code>max_concurrency=1</code> in experiments</td><td>Prevents parallel CrewAI runs from interleaving stdout/stderr and hitting LLM rate limits</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

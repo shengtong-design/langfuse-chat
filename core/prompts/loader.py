@@ -114,6 +114,7 @@ class PromptLoader:
             try:
                 prompt = client.get_prompt(name, label=label, cache_ttl_seconds=cache_ttl)
                 config = {**fallback, **dict(prompt.config)}
+                log.info("Loaded prompt '%s' version=%s label=%s", name, prompt.version, label)
                 return PromptResult(
                     config=config,
                     version=str(prompt.version),
@@ -125,5 +126,6 @@ class PromptLoader:
                     "Langfuse prompt '%s' (label=%s) unavailable — using YAML fallback",
                     name,
                     label,
+                    exc_info=True,
                 )
         return PromptResult(config=dict(fallback), version="fallback", name=name, label=label)

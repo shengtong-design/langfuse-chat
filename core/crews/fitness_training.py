@@ -65,4 +65,5 @@ class FitnessTrainingCrew(BaseCrew):
                 combined = str(result)
 
             root.update(output={"result": combined})
-            return {"result": combined, "stdout": stdout, "stderr": stderr}
+            return {"result": combined, "stdout": stdout, "stderr": stderr,
+                    "prompt_versions": prompt_meta}

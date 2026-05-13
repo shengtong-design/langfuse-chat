@@ -22,8 +22,9 @@ class ResearcherCrew(BaseCrew):
         loader = PromptLoader()
         prompts = {}
         agents = {}
+        _PROMPT_KEYS = {"researcher": "researcher_agent"}
         for name, spec in _CONFIG["agents"].items():
-            prompt = loader.get(f"researcher_{name}", fallback=spec)
+            prompt = loader.get(_PROMPT_KEYS.get(name, f"researcher_{name}"), fallback=spec)
             prompts[name] = prompt
             agents[name] = Agent(**prompt.config, verbose=True, allow_delegation=False)
 
@@ -55,4 +56,5 @@ class ResearcherCrew(BaseCrew):
             result, stdout, stderr = kickoff_crew(crew, obs, input_data=inputs)
             output = str(result)
             root.update(output={"result": output})
-            return {"result": output, "stdout": stdout, "stderr": stderr}
+            return {"result": output, "stdout": stdout, "stderr": stderr,
+                    "prompt_versions": prompt_meta}

@@ -127,6 +127,11 @@ def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool =
     """Render crew result and collapsible stdout/stderr."""
     st.subheader(heading)
     (st.markdown if markdown else st.write)(data["result"])
+    if data.get("prompt_versions"):
+        with st.expander("Prompt versions loaded", expanded=False):
+            for key, ver in data["prompt_versions"].items():
+                agent = key.replace("agent.", "").replace(".prompt_version", "")
+                st.caption(f"`{agent}` → version **{ver}**")
     with st.expander("stdout / stderr", expanded=False):
         st.code(data.get("stdout") or "", language="text")
         if data.get("stderr"):
