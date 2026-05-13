@@ -102,11 +102,9 @@ class BaseCrew(ABC):
         # crew_version = highest prompt version loaded (reflects actual runtime behaviour)
         live_versions = [int(p.version) for p in prompts.values() if p.version.isdigit()]
         crew_version = str(max(live_versions)) if live_versions else "fallback"
-        if hasattr(obs, "update_run_context"):
-            from core.observability.context.run_context import RunContext
-            ctx = getattr(obs, "_ctx", None)
-            if ctx is not None:
-                ctx.crew_version = crew_version
+        ctx = getattr(obs, "_ctx", None)
+        if ctx is not None:
+            obs._ctx = ctx.with_crew_version(crew_version)
 
         with obs.span(
             self.crew_name, "chain",

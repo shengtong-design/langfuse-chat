@@ -4,12 +4,7 @@ from uuid import uuid4
 
 @dataclass
 class RunContext:
-    """Carries per-run identity and environment metadata propagated to every span.
-
-    Required by guideline section 12:
-      prompt_version, agent_version, crew_version, model_version,
-      workflow_id, deployment_sha, environment
-    """
+    """Carries per-run identity and environment metadata propagated to every span."""
 
     session_id: str = field(default_factory=lambda: str(uuid4()))
     run_id: str = field(default_factory=lambda: str(uuid4()))
@@ -17,28 +12,40 @@ class RunContext:
     environment: str = "dev"
     app_version: str = "1.0.0"
     crew_name: str = ""
-    # Extended metadata (guideline section 12)
     deployment_sha: str = ""
     crew_version: str = ""
     model_version: str = ""
-    workflow_id: str = ""   # defaults to run_id when not set by a flow
+    _workflow_id: str = field(default="", repr=False)
+
+    @property
+    def workflow_id(self) -> str:
+        """Defaults to run_id when not explicitly set."""
+        return self._workflow_id or self.run_id
+
+    @workflow_id.setter
+    def workflow_id(self, value: str) -> None:
+        self._workflow_id = value
+
+    def with_crew_version(self, version: str) -> "RunContext":
+        """Return a new RunContext with crew_version set."""
+        import dataclasses
+        return dataclasses.replace(self, crew_version=version)
 
     def as_metadata(self) -> dict:
         return {k: v for k, v in {
-            "session_id": self.session_id,
-            "run_id": self.run_id,
-            "user_id": self.user_id,
-            "environment": self.environment,
-            "app_version": self.app_version,
-            "crew_name": self.crew_name,
+            "session_id":     self.session_id,
+            "run_id":         self.run_id,
+            "user_id":        self.user_id,
+            "environment":    self.environment,
+            "app_version":    self.app_version,
+            "crew_name":      self.crew_name,
             "deployment_sha": self.deployment_sha,
-            "crew_version": self.crew_version,
-            "model_version": self.model_version,
-            "workflow_id": self.workflow_id or self.run_id,
+            "crew_version":   self.crew_version,
+            "model_version":  self.model_version,
+            "workflow_id":    self.workflow_id,
         }.items() if v}
 
     def as_tags(self) -> list:
-        """Langfuse-style tags: list of 'key:value' strings."""
         tags = []
         if self.environment:
             tags.append(f"env:{self.environment}")
@@ -51,12 +58,6 @@ class RunContext:
         return tags
 
     def as_dd_tags(self) -> dict:
-        """Datadog-style tags: {'key': 'value'} dict for LLMObs.annotate(tags=...).
-
-        Tags are indexed in Datadog and usable for filtering/grouping.
-        All RunContext fields are included so native ddtrace CrewAI spans
-        that share the same trace inherit them via the root span context.
-        """
         return {k: v for k, v in {
             "env":            self.environment,
             "crew":           self.crew_name,
@@ -64,6 +65,6 @@ class RunContext:
             "deployment_sha": self.deployment_sha[:8] if self.deployment_sha else "",
             "crew_version":   self.crew_version,
             "model_version":  self.model_version,
-            "workflow_id":    self.workflow_id or self.run_id,
+            "workflow_id":    self.workflow_id,
             "session_id":     self.session_id,
         }.items() if v}

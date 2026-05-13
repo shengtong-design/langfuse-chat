@@ -44,28 +44,26 @@ def _streamlit_session_id() -> str:
         return os.getenv("SESSION_ID", str(uuid4()))
 
 
-def make_run_context(crew_name: str = "", workflow_id: str = "") -> RunContext:
+def make_run_context(crew_name: str = "") -> RunContext:
     """Create a RunContext for one crew run.
 
     session_id is scoped to the browser tab so all runs from one tab group in
-    Langfuse. workflow_id can be set by the flows layer; defaults to run_id.
+    Langfuse. workflow_id defaults to run_id via the RunContext.workflow_id property.
+    crew_version is set by BaseCrew after prompts are loaded via with_crew_version().
     """
     environment = os.getenv("ENVIRONMENT", "dev")
     env_cfg = _load_env_config(environment)
 
     session_id = _streamlit_session_id()
     user_id = os.getenv("USER_ID", "") or session_id
-    run_id = str(uuid4())
 
     return RunContext(
         session_id=session_id,
-        run_id=run_id,
+        run_id=str(uuid4()),
         user_id=user_id,
         environment=environment,
         app_version=_read_app_version(),
         crew_name=crew_name,
         deployment_sha=env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", ""),
-        crew_version="",  # set by BaseCrew after prompts are loaded
         model_version=env_cfg.get("model_defaults", {}).get("default", "") or os.getenv("MODEL_VERSION", ""),
-        workflow_id=workflow_id or run_id,
     )
