@@ -32,21 +32,26 @@ from .run_context import RunContext
 
 
 class EnrichedConnectorManager:
-    def __init__(
-        self, base: "ConnectorManager", context: RunContext, _init_callbacks: bool = True
-    ) -> None:
+    def __init__(self, base: "ConnectorManager", context: RunContext) -> None:
         self._base = base
         self._ctx = context
-        if _init_callbacks:
-            # Build a callbacks-only manager by filtering connectors directly.
-            # Avoids calling base.for_callbacks() which would fail on a stale
-            # @st.cache_resource instance whose class predates that method.
-            raw = getattr(base, '_connectors', [])
-            cb_connectors = [c for c in raw if getattr(c, 'handles_step_callbacks', True)]
-            cb_base = type(base)(cb_connectors)
-            cb_obs = EnrichedConnectorManager(cb_base, context, _init_callbacks=False)
-            self._callbacks = CrewCallbacks(cb_obs)
+        # Build a callbacks-only manager by filtering connectors directly.
+        # Avoids calling base.for_callbacks() which would fail on a stale
+        # @st.cache_resource instance whose class predates that method.
+        raw = getattr(base, '_connectors', [])
+        cb_connectors = [c for c in raw if getattr(c, 'handles_step_callbacks', True)]
+        cb_base = type(base)(cb_connectors)
+        self._callbacks = CrewCallbacks(EnrichedConnectorManager._from_parts(cb_base, context))
         base.update_run_context(context)
+
+    @classmethod
+    def _from_parts(cls, base: "ConnectorManager", context: RunContext) -> "EnrichedConnectorManager":
+        """Create a bare instance with no callbacks wiring (used internally)."""
+        inst = object.__new__(cls)
+        inst._base = base
+        inst._ctx = context
+        inst._callbacks = None  # type: ignore[assignment]
+        return inst
 
     @property
     def crew_callbacks(self) -> CrewCallbacks:

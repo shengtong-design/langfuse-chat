@@ -42,55 +42,48 @@ class BaseCrew(ABC):
     def _format_result(self, crew_result: Any, task_outputs: List[Any]) -> str:
         return str(crew_result)
 
-    def run(
-        self,
-        inputs: Dict[str, Any],
-        obs: Any,
-    ) -> Dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _load_agents(self) -> tuple:
+        """Load agent YAMLs, fetch prompts, return (agents_dict, prompts_dict)."""
         agent_specs = {
             Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
             for n in self._agent_yaml_names
         }
-        task_specs = [
-            yaml.safe_load((_TASKS_DIR / n).read_text())
-            for n in self._task_yaml_names
-        ]
-
         loader = PromptLoader()
         agents: Dict[str, Agent] = {}
         prompts = {}
         for name, spec in agent_specs.items():
             prompt_key = spec.get("agent_name") or name
-            prompt = loader.get(
-                prompt_key,
-                fallback=spec.get("fallback", {}),
-            )
+            prompt = loader.get(prompt_key, fallback=spec.get("fallback", {}))
             prompts[name] = prompt
             agents[name] = Agent(
                 **prompt.config,
                 verbose=spec.get("verbose", True),
                 allow_delegation=spec.get("allow_delegation", False),
             )
+        return agents, prompts
 
+    def _load_tasks(self, agents: Dict[str, Agent], inputs: Dict[str, Any]) -> List[Task]:
+        """Load task YAMLs and build Task objects bound to loaded agents."""
         safe_inputs = {k: str(v).replace("{", "{{").replace("}", "}}") for k, v in inputs.items()}
         tasks = []
-        for spec in task_specs:
+        for n in self._task_yaml_names:
+            spec = yaml.safe_load((_TASKS_DIR / n).read_text())
             if "description" not in spec or "agent" not in spec:
-                raise ValueError(f"task YAML is missing required key(s) 'description' or 'agent': {spec}")
+                raise ValueError(f"task YAML missing required key(s) 'description' or 'agent': {spec}")
             tasks.append(Task(
                 description=spec["description"].format(**safe_inputs),
                 expected_output=spec.get("expected_output", ""),
                 agent=agents[spec["agent"]],
             ))
+        return tasks
 
-        crew = Crew(
-            agents=list(agents.values()),
-            tasks=tasks,
-            verbose=True,
-            **get_crew_kwargs(obs),
-        )
-
-        prompt_meta = {}
+    def _update_obs_context(self, prompts: dict, obs: Any) -> Dict[str, Any]:
+        """Build prompt metadata dict and push crew_version into obs RunContext."""
+        prompt_meta: Dict[str, Any] = {}
         for name, p in prompts.items():
             prompt_meta[f"agent.{name}.prompt_name"] = p.name
             prompt_meta[f"agent.{name}.prompt_version"] = p.version
@@ -98,14 +91,23 @@ class BaseCrew(ABC):
             for field in ("role", "goal", "backstory"):
                 if field in p.config:
                     prompt_meta[f"agent.{name}.{field}"] = p.config[field]
-
-        # crew_version = highest prompt version loaded (reflects actual runtime behaviour)
+        # crew_version = highest live prompt version (reflects actual runtime behaviour)
         live_versions = [int(p.version) for p in prompts.values() if p.version.isdigit()]
         crew_version = str(max(live_versions)) if live_versions else "fallback"
         ctx = getattr(obs, "_ctx", None)
         if ctx is not None:
             obs._ctx = ctx.with_crew_version(crew_version)
+        return prompt_meta
 
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
+        agents, prompts = self._load_agents()
+        tasks = self._load_tasks(agents, inputs)
+        crew = Crew(agents=list(agents.values()), tasks=tasks, verbose=True, **get_crew_kwargs(obs))
+        prompt_meta = self._update_obs_context(prompts, obs)
         with obs.span(
             self.crew_name, "chain",
             input_data=inputs,
