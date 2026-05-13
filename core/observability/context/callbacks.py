@@ -10,9 +10,19 @@ get_crew_kwargs() is a no-op when obs is a plain ConnectorManager, so the crew
 files don't need to branch on whether the addon is active.
 """
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 log = logging.getLogger(__name__)
+
+
+_CREWAI_PARSE_FAILURES = {"failed to parse llm response", "could not parse llm output"}
+
+
+def _clean_thought(raw: str) -> tuple[str, bool]:
+    """Return (thought, is_parse_failure). Detects CrewAI internal parse-error messages."""
+    cleaned = raw.strip()
+    is_failure = cleaned.lower() in _CREWAI_PARSE_FAILURES
+    return cleaned, is_failure
 
 
 def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
@@ -20,17 +30,20 @@ def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
     type_name = type(step).__name__
 
     if type_name == "AgentFinish":
-        thought = str(getattr(step, "thought", "") or "")[:500]
+        raw_thought = str(getattr(step, "thought", "") or "")[:500]
+        thought, is_parse_failure = _clean_thought(raw_thought)
         raw_output = getattr(step, "output", None) or getattr(step, "return_values", {})
         if isinstance(raw_output, dict):
             raw_output = raw_output.get("output", str(raw_output))
-        return (
-            {"thought": thought},
-            {"result": str(raw_output)[:2000]},
-        )
+        input_data = {} if is_parse_failure else {"thought": thought}
+        output: Dict[str, Any] = {"result": str(raw_output)[:2000]}
+        if is_parse_failure:
+            output["parse_warning"] = "crewai_failed_to_parse_llm_response"
+        return input_data, output
 
     if type_name == "AgentAction":
-        thought = str(getattr(step, "thought", "") or getattr(step, "log", "") or "")[:500]
+        raw_thought = str(getattr(step, "thought", "") or getattr(step, "log", "") or "")[:500]
+        thought, _ = _clean_thought(raw_thought)
         return (
             {
                 "thought": thought,
