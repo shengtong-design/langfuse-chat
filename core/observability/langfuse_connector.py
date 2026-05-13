@@ -21,6 +21,10 @@ class LangfuseSpanHandle(SpanHandle):
 class LangfuseConnector(BaseConnector):
     def __init__(self, client: Any) -> None:
         self._client = client
+        self._run_ctx: Optional[Any] = None
+
+    def update_run_context(self, context: Any) -> None:
+        self._run_ctx = context
 
     @property
     def enabled(self) -> bool:
@@ -42,6 +46,15 @@ class LangfuseConnector(BaseConnector):
         # start_as_current_observation sets the OTel current span, so nested
         # calls within this context automatically become child spans.
         with self._client.start_as_current_observation(**kwargs) as obs:
+            if self._run_ctx is not None:
+                try:
+                    self._client.update_current_trace(
+                        session_id=self._run_ctx.session_id or None,
+                        user_id=self._run_ctx.user_id or None,
+                        tags=self._run_ctx.as_tags() or None,
+                    )
+                except Exception:
+                    pass
             yield LangfuseSpanHandle(obs)
 
     def flush(self) -> None:

@@ -3,6 +3,7 @@ import io
 from typing import Any, Dict
 
 from .base import BaseCrew
+from core.observability.context.callbacks import get_crew_kwargs
 
 
 class ResearcherCrew(BaseCrew):
@@ -27,7 +28,7 @@ class ResearcherCrew(BaseCrew):
 
         researcher = Agent(**agent_spec, verbose=True, allow_delegation=False)
         task = Task(**task_spec, agent=researcher)
-        crew = Crew(agents=[researcher], tasks=[task], verbose=True)
+        crew = Crew(agents=[researcher], tasks=[task], verbose=True, **get_crew_kwargs(obs))
 
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()

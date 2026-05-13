@@ -24,6 +24,10 @@ class DatadogSpanHandle(SpanHandle):
 class DatadogConnector(BaseConnector):
     def __init__(self, active: bool) -> None:
         self._active = active
+        self._run_ctx: Optional[Any] = None
+
+    def update_run_context(self, context: Any) -> None:
+        self._run_ctx = context
 
     @property
     def enabled(self) -> bool:
@@ -56,14 +60,25 @@ class DatadogConnector(BaseConnector):
             return
 
         span_kwargs: Dict[str, Any] = {"name": name}
-        session_id = os.getenv("DD_LLMOBS_SESSION_ID", "").strip()
+        session_id = (
+            (self._run_ctx.session_id if self._run_ctx else "")
+            or os.getenv("DD_LLMOBS_SESSION_ID", "").strip()
+        )
         if session_id:
             span_kwargs["session_id"] = session_id
 
         handle = DatadogSpanHandle()
         with method(**span_kwargs):
+            # Always annotate context — metadata and tags must be set even when
+            # there is no input_data (e.g. agent.step callbacks).
+            annotate_kwargs: Dict[str, Any] = {"metadata": metadata or {}}
             if input_data:
-                LLMObs.annotate(input_data=input_data, metadata=metadata or {})
+                annotate_kwargs["input_data"] = input_data
+            if self._run_ctx is not None:
+                dd_tags = self._run_ctx.as_dd_tags()
+                if dd_tags:
+                    annotate_kwargs["tags"] = dd_tags
+            LLMObs.annotate(**annotate_kwargs)
             try:
                 yield handle
             finally:

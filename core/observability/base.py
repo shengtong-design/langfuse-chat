@@ -30,3 +30,6 @@ class BaseConnector(ABC):
 
     def flush(self) -> None:
         pass
+
+    def update_run_context(self, context: Any) -> None:
+        pass

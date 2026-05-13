@@ -3,6 +3,7 @@ import io
 from typing import Any, Dict
 
 from .base import BaseCrew
+from core.observability.context.callbacks import get_crew_kwargs
 
 
 class FitnessTrainingCrew(BaseCrew):
@@ -113,6 +114,7 @@ class FitnessTrainingCrew(BaseCrew):
             agents=[fitness_analyst, workout_designer, nutrition_advisor],
             tasks=[task_analysis, task_workout, task_nutrition],
             verbose=True,
+            **get_crew_kwargs(obs),
         )
 
         stdout_buf = io.StringIO()

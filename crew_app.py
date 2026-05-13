@@ -72,6 +72,7 @@ from opentelemetry import trace
 
 from core.crews import CREWS
 from core.observability import ConnectorManager
+from core.observability.context import EnrichedConnectorManager, make_run_context
 from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
 
@@ -124,7 +125,7 @@ with tab_research:
 
     if research_btn:
         try:
-            obs = _get_connectors()
+            obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
             with st.spinner("Running researcher crew..."):
                 data = CREWS["researcher"]().run({"question": question.strip()}, obs)
             obs.flush()
@@ -164,7 +165,7 @@ with tab_fitness:
             st.warning("Please fill in goals and available equipment.")
         else:
             try:
-                obs = _get_connectors()
+                obs = EnrichedConnectorManager(_get_connectors(), make_run_context("fitness_training"))
                 with st.spinner("Generating your personalized fitness plan (3 agents)..."):
                     data = CREWS["fitness_training"]().run(
                         {
@@ -214,7 +215,6 @@ with tab_experiment:
                 items = list(dataset.items)
                 st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
 
-                obs = _get_connectors()
                 crew = CREWS["researcher"]()
 
                 def _task(item):
@@ -223,7 +223,10 @@ with tab_experiment:
                         q = q.get("question") or q.get("query") or q.get("input") or str(q)
                     q = str(q)
                     trace.get_current_span().update_name(q)
-                    result = crew.run({"question": q}, obs)
+                    # Fresh obs per item: same session_id (same browser tab) but new run_id.
+                    item_obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
+                    result = crew.run({"question": q}, item_obs)
+                    item_obs.flush()
                     return result["result"]
 
                 with st.spinner(f"Running {len(items)} items — this may take a while..."):
@@ -236,7 +239,7 @@ with tab_experiment:
                         metadata={"framework": "crewai", "runner": "crew_app.py"},
                     )
 
-                obs.flush()
+                _get_connectors().flush()
                 st.success(f"Experiment **{experiment_name}** complete!")
                 st.caption(f"Check Langfuse → Datasets → {dataset_name} → Experiments")
             except Exception as e:

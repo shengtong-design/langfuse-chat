@@ -41,3 +41,7 @@ class ConnectorManager:
     def flush(self) -> None:
         for c in self._connectors:
             c.flush()
+
+    def update_run_context(self, context: Any) -> None:
+        for c in self._connectors:
+            c.update_run_context(context)
