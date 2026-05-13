@@ -17,11 +17,16 @@ class FitnessTrainingCrew(BaseCrew):
     def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
         from crewai import Agent, Crew, Task
         from core.observability.context.callbacks import get_crew_kwargs
+        from core.prompts import PromptLoader
 
-        agents = {
-            name: Agent(**spec, verbose=True, allow_delegation=False)
-            for name, spec in _CONFIG["agents"].items()
-        }
+        loader = PromptLoader()
+        prompts = {}
+        agents = {}
+        for name, spec in _CONFIG["agents"].items():
+            prompt = loader.get(f"fitness_{name}", fallback=spec)
+            prompts[name] = prompt
+            agents[name] = Agent(**prompt.config, verbose=True, allow_delegation=False)
+
         tasks = [
             Task(
                 description=spec["description"].format(**inputs),
@@ -37,10 +42,15 @@ class FitnessTrainingCrew(BaseCrew):
             **get_crew_kwargs(obs),
         )
 
+        prompt_meta = {
+            f"agent.{name}.prompt_version": p.version
+            for name, p in prompts.items()
+        }
+
         with obs.span(
             "crewai.fitness_training", "chain",
             input_data=inputs,
-            metadata={"framework": "crewai", "crew": self.crew_name},
+            metadata={"framework": "crewai", "crew": self.crew_name, **prompt_meta},
         ) as root:
             result, stdout, stderr = kickoff_crew(crew, obs, input_data=inputs)
 
