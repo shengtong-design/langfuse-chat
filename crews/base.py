@@ -14,10 +14,15 @@ from .common import kickoff_crew
 _AGENTS_DIR = Path(__file__).parent.parent / "agents"
 _TASKS_DIR = Path(__file__).parent.parent / "tasks"
 
-# Per-concept schema for the "task" YAML. LLM-text fields are the only keys a
-# Langfuse-side edit can override; everything else stays code/YAML-only so wiring
-# (agent, context, tools, output schema, retries, ...) cannot drift via Langfuse.
+# Per-concept LLM-text field sets. Only these keys can be overridden by a
+# Langfuse-side edit; everything else stays code/YAML-only so wiring cannot
+# drift via Langfuse. Extend per CrewAI's docs when adding new prompt-y fields.
+_AGENT_LLM_TEXT_FIELDS = (
+    "role", "goal", "backstory",
+    "system_template", "prompt_template", "response_template",
+)
 _TASK_LLM_TEXT_FIELDS = ("description", "expected_output")
+
 # Reserved top-level YAML keys consumed by the loader. Anything outside this set
 # is forwarded to Task(**kwargs), so new CrewAI Task fields (context, tools,
 # async_execution, output_pydantic, output_file, guardrail, human_input,
@@ -46,6 +51,21 @@ def _namespaced(namespace: str, key: str, *, source: str) -> str:
             f"the {namespace!r} prefix is added automatically."
         )
     return f"{namespace}{key}"
+
+
+def _pull_llm_text(prompt_config: Dict[str, Any], fallback: Dict[str, Any], fields: tuple) -> Dict[str, Any]:
+    """Resolve LLM-text fields from Langfuse with fallback, ignoring extras.
+
+    Only keys in ``fields`` are returned. Any other keys Langfuse may return
+    are dropped so wiring cannot be overridden via a Langfuse edit.
+    """
+    out: Dict[str, Any] = {}
+    for field in fields:
+        if field in prompt_config:
+            out[field] = prompt_config[field]
+        elif field in fallback:
+            out[field] = fallback[field]
+    return out
 
 
 class BaseCrew(ABC):
@@ -107,14 +127,12 @@ class BaseCrew(ABC):
         for name, spec in agent_specs.items():
             prompt_key = spec.get("agent_name") or name
             langfuse_name = _namespaced(_AGENT_PROMPT_NAMESPACE, prompt_key, source=f"agents/{name}.yaml")
-            prompt = loader.get(langfuse_name, fallback=spec.get("fallback", {}))
+            fallback = spec.get("fallback", {}) or {}
+            prompt = loader.get(langfuse_name, fallback=fallback)
             prompts[name] = prompt
-            # NOTE: this merge is permissive — any key Langfuse returns in
-            # prompt.config flows into Agent(...). Tasks use a tighter pull
-            # (only the LLM-text fields). Consider mirroring that hardening
-            # here so a Langfuse edit cannot silently change agent wiring.
+            agent_text = _pull_llm_text(prompt.config, fallback, _AGENT_LLM_TEXT_FIELDS)
             agents[name] = Agent(
-                **prompt.config,
+                **agent_text,
                 verbose=spec.get("verbose", True),
                 allow_delegation=spec.get("allow_delegation", False),
             )
@@ -149,12 +167,9 @@ class BaseCrew(ABC):
             langfuse_name = _namespaced(_TASK_PROMPT_NAMESPACE, prompt_key, source=f"tasks/{filename}")
 
             prompt = loader.get(langfuse_name, fallback=fallback)
-            # Pull only the LLM-text fields; ignore anything else Langfuse
-            # might return so wiring cannot be overridden via a Langfuse edit.
-            description = prompt.config.get("description", fallback["description"])
-            expected_output = prompt.config.get(
-                "expected_output", fallback.get("expected_output", "")
-            )
+            task_text = _pull_llm_text(prompt.config, fallback, _TASK_LLM_TEXT_FIELDS)
+            description = task_text["description"]
+            expected_output = task_text.get("expected_output", "")
 
             wiring_kwargs = {k: v for k, v in spec.items() if k not in _TASK_RESERVED_KEYS}
 
