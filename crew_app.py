@@ -94,8 +94,10 @@ def _get_langfuse():
     )
 
 
-@st.cache_resource
 def _get_connectors() -> ConnectorManager:
+    # Not cached: connectors are cheap; LangfuseConnector reuses _get_langfuse()
+    # which IS cached. Fresh instances every render prevents stale class attributes
+    # from surviving hot-reloads (e.g. handles_step_callbacks on DatadogConnector).
     return ConnectorManager([
         LangfuseConnector(_get_langfuse()),
         DatadogConnector(_DD_LLMOBS_ACTIVE),
