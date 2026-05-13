@@ -90,10 +90,11 @@ class BaseCrew(ABC):
             **get_crew_kwargs(obs),
         )
 
-        prompt_meta = {
-            f"agent.{name}.prompt_version": p.version
-            for name, p in prompts.items()
-        }
+        prompt_meta = {}
+        for name, p in prompts.items():
+            prompt_meta[f"agent.{name}.prompt_name"] = p.name
+            prompt_meta[f"agent.{name}.prompt_version"] = p.version
+            prompt_meta[f"agent.{name}.prompt_source"] = "langfuse" if p.version != "fallback" else "yaml_fallback"
 
         with obs.span(
             self.crew_name, "chain",

@@ -127,14 +127,18 @@ def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool =
     """Render crew result and collapsible stdout/stderr."""
     st.subheader(heading)
     (st.markdown if markdown else st.write)(data.get("result", ""))
-    if data.get("prompt_versions"):
+    pv = data.get("prompt_versions", {})
+    agents = {k.split(".")[1] for k in pv if k.endswith(".prompt_source")}
+    if agents:
         with st.expander("Prompt sources", expanded=True):
-            for key, ver in data["prompt_versions"].items():
-                agent = key.replace("agent.", "").replace(".prompt_version", "")
-                if ver == "fallback":
-                    st.warning(f"`{agent}` — YAML fallback (Langfuse prompt not found)", icon="⚠️")
+            for agent in sorted(agents):
+                name = pv.get(f"agent.{agent}.prompt_name", agent)
+                version = pv.get(f"agent.{agent}.prompt_version", "?")
+                source = pv.get(f"agent.{agent}.prompt_source", "yaml_fallback")
+                if source == "langfuse":
+                    st.success(f"`{agent}` — Langfuse **{name}** v{version}", icon="✅")
                 else:
-                    st.success(f"`{agent}` — Langfuse v{ver}", icon="✅")
+                    st.warning(f"`{agent}` — YAML fallback (prompt `{name}` not found in Langfuse)", icon="⚠️")
     with st.expander("stdout / stderr", expanded=False):
         st.code(data.get("stdout") or "", language="text")
         if data.get("stderr"):
