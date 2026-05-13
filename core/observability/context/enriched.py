@@ -38,10 +38,13 @@ class EnrichedConnectorManager:
         self._base = base
         self._ctx = context
         if _init_callbacks:
-            # Callbacks get their own enriched obs backed only by connectors that
-            # opted in (handles_step_callbacks=True). Datadog is excluded so its
-            # native ddtrace CrewAI instrumentation runs unobstructed.
-            cb_obs = EnrichedConnectorManager(base.for_callbacks(), context, _init_callbacks=False)
+            # Build a callbacks-only manager by filtering connectors directly.
+            # Avoids calling base.for_callbacks() which would fail on a stale
+            # @st.cache_resource instance whose class predates that method.
+            raw = getattr(base, '_connectors', [])
+            cb_connectors = [c for c in raw if getattr(c, 'handles_step_callbacks', True)]
+            cb_base = type(base)(cb_connectors)
+            cb_obs = EnrichedConnectorManager(cb_base, context, _init_callbacks=False)
             self._callbacks = CrewCallbacks(cb_obs)
         base.update_run_context(context)
 
