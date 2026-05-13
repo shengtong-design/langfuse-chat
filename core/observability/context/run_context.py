@@ -26,11 +26,6 @@ class RunContext:
     def workflow_id(self, value: str) -> None:
         self._workflow_id = value
 
-    def with_crew_version(self, version: str) -> "RunContext":
-        """Return a new RunContext with crew_version set."""
-        import dataclasses
-        return dataclasses.replace(self, crew_version=version)
-
     def as_metadata(self) -> dict:
         return {k: v for k, v in {
             "session_id":     self.session_id,

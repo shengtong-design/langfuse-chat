@@ -4,6 +4,8 @@ from .base import BaseCrew
 
 
 class ResearchCrew(BaseCrew):
+    crew_version = "1.0.0"
+
     @property
     def crew_name(self) -> str:
         return "crewai.researcher"

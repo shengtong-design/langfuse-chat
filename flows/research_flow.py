@@ -41,7 +41,7 @@ class ResearchFlow(Flow[ResearchState]):
 
             obs = EnrichedConnectorManager(
                 self._connectors_factory(),
-                make_run_context("researcher"),
+                make_run_context("researcher", crew_version=ResearchCrew.crew_version),
             )
             data = ResearchCrew().run(
                 {"question": self.state.question},

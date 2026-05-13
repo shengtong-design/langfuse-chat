@@ -52,7 +52,7 @@ class FitnessFlow(Flow[FitnessState]):
             }
             obs = EnrichedConnectorManager(
                 self._connectors_factory(),
-                make_run_context("fitness_training"),
+                make_run_context("fitness_training", crew_version=FitnessCrew.crew_version),
             )
             data = FitnessCrew().run(
                 inputs,

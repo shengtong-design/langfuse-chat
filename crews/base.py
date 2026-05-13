@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, ClassVar, Dict, List
 
 import yaml
 from crewai import Agent, Crew, Task
@@ -18,7 +18,8 @@ _TASKS_DIR = Path(__file__).parent.parent / "tasks"
 class BaseCrew(ABC):
     """Template-method base for all crews.
 
-    Subclasses must implement:
+    Subclasses must set/implement:
+      - crew_version      → semver string identifying the crew recipe
       - crew_name         → str
       - _agent_yaml_names → list of filenames in agents/ (e.g. ["researcher.yaml"])
       - _task_yaml_names  → list of filenames in tasks/, in execution order
@@ -26,6 +27,19 @@ class BaseCrew(ABC):
     Subclasses may override:
       - _format_result(crew_result, task_outputs) → str  for custom output formatting
     """
+
+    # Recipe version owned by the crew definition. Semver string, bumped manually
+    # via PR. Distinct from per-run prompt versions (recorded as agents_signature).
+    #
+    # Bump when:
+    #   - _agent_yaml_names changes (add/remove/swap an agent)
+    #   - _task_yaml_names changes (reorder, add, or remove a task)
+    #   - _format_result semantics change
+    #   - the wired tool set changes
+    #   - an agent's prompt key is renamed (different Langfuse prompt resolves)
+    # Do NOT bump for a Langfuse-side edit to an existing agent's prompt — that
+    # is already captured per-run in agents_signature.
+    crew_version: ClassVar[str] = ""
 
     @property
     @abstractmethod
@@ -81,8 +95,13 @@ class BaseCrew(ABC):
             ))
         return tasks
 
-    def _update_obs_context(self, prompts: dict, obs: Any) -> Dict[str, Any]:
-        """Build prompt metadata dict and push crew_version into obs RunContext."""
+    def _build_prompt_meta(self, prompts: dict) -> Dict[str, Any]:
+        """Build per-agent prompt metadata + an agents_signature for trace filtering.
+
+        agents_signature is a deterministic, sorted, lossless record of which prompt
+        version resolved for each agent on this run (e.g. "researcher@6,summarizer@3").
+        Distinct from crew_version, which identifies the recipe and is set on RunContext.
+        """
         prompt_meta: Dict[str, Any] = {}
         for name, p in prompts.items():
             prompt_meta[f"agent.{name}.prompt_name"] = p.name
@@ -91,12 +110,9 @@ class BaseCrew(ABC):
             for field in ("role", "goal", "backstory"):
                 if field in p.config:
                     prompt_meta[f"agent.{name}.{field}"] = p.config[field]
-        # crew_version = highest live prompt version (reflects actual runtime behaviour)
-        live_versions = [int(p.version) for p in prompts.values() if p.version.isdigit()]
-        crew_version = str(max(live_versions)) if live_versions else "fallback"
-        ctx = getattr(obs, "_ctx", None)
-        if ctx is not None:
-            obs._ctx = ctx.with_crew_version(crew_version)
+        prompt_meta["agents_signature"] = ",".join(
+            f"{name}@{p.version}" for name, p in sorted(prompts.items())
+        )
         return prompt_meta
 
     # ------------------------------------------------------------------
@@ -104,10 +120,11 @@ class BaseCrew(ABC):
     # ------------------------------------------------------------------
 
     def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
+        assert self.crew_version, f"{type(self).__name__}.crew_version must be set"
         agents, prompts = self._load_agents()
         tasks = self._load_tasks(agents, inputs)
         crew = Crew(agents=list(agents.values()), tasks=tasks, verbose=True, **get_crew_kwargs(obs))
-        prompt_meta = self._update_obs_context(prompts, obs)
+        prompt_meta = self._build_prompt_meta(prompts)
         with obs.span(
             self.crew_name, "chain",
             input_data=inputs,
