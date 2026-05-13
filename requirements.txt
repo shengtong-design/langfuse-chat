@@ -4,5 +4,6 @@ langfuse>=3.0.0,<4.0.0
 openai>=2.30.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0
 ddtrace>=2.0.0,<3.0.0
-chromadb>=1.2.0,<2.0.0
+chromadb==1.1.1
+pydantic>=2.11.9,<2.13
 pyyaml>=6.0,<7.0
