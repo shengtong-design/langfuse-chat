@@ -16,11 +16,13 @@ through a Streamlit UI; orchestrated through CrewAI Flows.
 
 | Tenet | Realization |
 |---|---|
-| **Separate fast-moving prompt edits from code** | Agent prompts live in Langfuse (production label); the repo carries only YAML fallback config for offline / disaster scenarios. |
+| **Separate fast-moving prompt edits from code** | Both agent **and task** prompts live in Langfuse (production label); the repo carries only YAML fallback config for offline / disaster scenarios. |
 | **Observability is a first-class connector layer, not an afterthought** | All crew/agent/task spans flow through `ConnectorManager`; backends (Langfuse, Datadog) plug in via `BaseConnector`. |
 | **Run identity is structured and propagated** | A `RunContext` (session, run, user, env, app version, crew version, model version, deployment SHA) attaches to every span and tag automatically. |
-| **Crew identity ≠ prompt identity** | `crew_version` (recipe semver) and `agents_signature` (per-run resolved prompt versions) are two independent axes, both emitted on the trace. |
-| **Extensibility by convention, not framework lock-in** | New crews = add YAMLs + subclass `BaseCrew`. New connectors = subclass `BaseConnector`. |
+| **Crew identity ≠ prompt identity** | `crew_version` (recipe semver), `agents_signature`, and `tasks_signature` (per-run resolved prompt versions) are independent axes, all emitted on the trace. |
+| **Langfuse names cannot collide across concepts** | Prompts are stored under namespaced names: `agent.<name>`, `task.<name>`. Prefix is enforced by the per-concept loader; YAML keys stay bare. |
+| **Wiring stays in code/YAML; only LLM-text is editable in Langfuse** | Loaders pull a fixed allow-list of fields from Langfuse (`role`/`goal`/`backstory` for agents, `description`/`expected_output` for tasks). Anything else Langfuse returns is dropped — a Langfuse edit cannot change wiring (model, tools, agent assignment, retries, ...). |
+| **Extensibility by convention, not framework lock-in** | New crews = add YAMLs + subclass `BaseCrew`. New connectors = subclass `BaseConnector`. New CrewAI Task fields = YAML edit only (generic pass-through). |
 
 ---
 
@@ -50,13 +52,14 @@ through a Streamlit UI; orchestrated through CrewAI Flows.
         └────────┬───────┘   │  · CrewAI step/task cbs │
                  │           └────┬──────────────┬─────┘
         Langfuse │                │              │
-        prompts  │           Langfuse        Datadog
-                 │           Connector       Connector
-        ┌────────▼──────┐   ┌───────────┐  ┌────────────┐
-        │  agents/*.yaml │   │ Langfuse │  │ ddtrace    │
-        │  (fallback)    │   │ traces+  │  │ LLMObs     │
-        │                │   │ prompts  │  │ traces     │
-        └────────────────┘   └──────────┘  └────────────┘
+       agent.*+  │           Langfuse        Datadog
+       task.*    │           Connector       Connector
+       prompts   │
+        ┌────────▼──────────┐ ┌───────────┐  ┌────────────┐
+        │  agents/*.yaml +  │ │ Langfuse  │  │ ddtrace    │
+        │  tasks/*.yaml     │ │ traces +  │  │ LLMObs     │
+        │  (fallback only)  │ │ prompts   │  │ traces     │
+        └───────────────────┘ └───────────┘  └────────────┘
 ```
 
 ---
@@ -87,8 +90,8 @@ langfuse-chat/
 │   ├── workout_designer.yaml
 │   └── nutrition_advisor.yaml
 │
-├── tasks/                       ← Task YAML (description + expected_output + agent ref)
-│   ├── research_task.yaml
+├── tasks/                       ← Task YAML (wiring + fallback block; description
+│   ├── research_task.yaml         and expected_output resolve from Langfuse at runtime)
 │   ├── fitness_analysis_task.yaml
 │   ├── fitness_workout_task.yaml
 │   └── fitness_nutrition_task.yaml
@@ -149,11 +152,10 @@ string identifying that recipe.
 `BaseCrew.run(inputs, obs)` is the single public entry point:
 
 1. Asserts `crew_version` is set.
-2. Loads agent specs (YAML), fetches prompts via `PromptLoader` (with fallback).
-3. Loads tasks (YAML), binds them to agents.
+2. Loads agent specs (YAML), fetches each prompt as `agent.<name>` from Langfuse via `PromptLoader` (with YAML fallback). Only the LLM-text fields (`role`, `goal`, `backstory`, optional `system_template`/`prompt_template`/`response_template`) are pulled from the merged config.
+3. Loads task specs (YAML), fetches each prompt as `task.<name>` from Langfuse the same way. Only `description` and `expected_output` are pulled. All other YAML keys are forwarded verbatim to `Task(**kwargs)` as wiring.
 4. Builds a `crewai.Crew` with step/task callbacks injected by `get_crew_kwargs(obs)`.
-5. Computes `prompt_meta` (per-agent prompt name/version/source/role/goal/backstory)
-   and an `agents_signature` string.
+5. Computes `prompt_meta`: per-agent and per-task prompt name/version/source plus deterministic `agents_signature` and `tasks_signature` strings.
 6. Opens the root span (`obs.span(...)`), kicks off the crew, sets output, returns
    `{result, stdout, stderr, prompt_versions}`.
 
@@ -165,34 +167,82 @@ Bump for any change to the *recipe*:
 - `_task_yaml_names` changes (reorder, add, or remove a task)
 - `_format_result` semantics change
 - The wired tool set changes
-- An agent's prompt key is renamed (so a different Langfuse prompt resolves)
+- An agent's or task's `prompt_key` is renamed (so a different Langfuse prompt resolves)
+- Task-YAML wiring changes (agent assignment, `context`, `tools`, `output_pydantic`, ...)
 
-Do **not** bump it for a Langfuse-side edit to an existing agent's prompt — that
-is already captured per-run in `agents_signature`.
+Do **not** bump it for a Langfuse-side edit to an existing agent's or task's
+prompt — those are already captured per-run in `agents_signature` and
+`tasks_signature`.
 
 ### 4.2 Agent (configurable behavior)
 
 An agent is two things layered:
 
-- **YAML in `agents/<name>.yaml`** — declarative scaffolding: `agent_name` (the
-  Langfuse prompt key), `verbose`, `allow_delegation`, and a `fallback` dict
-  with `role`, `goal`, `backstory`. Used only when Langfuse is unreachable or
-  the prompt is missing.
-- **Langfuse prompt** (production label) — runtime source of truth for `role`,
-  `goal`, `backstory`, and any additional config keys. Merged over the YAML
-  fallback by `PromptLoader`.
+- **YAML in `agents/<name>.yaml`** — wiring: `agent_name` (the bare key the
+  Langfuse prompt resolves under, namespaced to `agent.<name>` at lookup
+  time), `verbose`, `allow_delegation`, and a `fallback` dict with `role`,
+  `goal`, `backstory`. Wiring keys never reach Langfuse.
+- **Langfuse prompt** named `agent.<name>` (production label) — runtime
+  source of truth for the LLM-text fields. The loader pulls only an
+  allow-list (`role`, `goal`, `backstory`, optional `system_template` /
+  `prompt_template` / `response_template`). Anything else Langfuse returns
+  is dropped — a Langfuse edit cannot inject a different `llm`, `tools`, or
+  `allow_delegation`.
 
-This separation lets the team edit prompts in Langfuse without code deploys,
-while keeping a deterministic fallback in version control.
+This separation lets the team edit prompt text in Langfuse without code
+deploys, while keeping wiring and a deterministic fallback in version
+control.
 
 ### 4.3 Task
 
-A task is a YAML file with `description` (Python-format-string with `{var}`
-placeholders bound from `inputs`), `expected_output` (free-form string), and
-`agent` (the YAML stem of the agent that owns it).
+A task YAML carries **wiring at the top level** and a **`fallback:` block**
+for the LLM-text fields:
 
-Input substitution uses double-brace escaping so literal `{` / `}` in user input
-is safe.
+```yaml
+# tasks/research_task.yaml
+task_name: research
+agent: researcher
+prompt_key: research_task          # bare key; resolves as "task.research_task" in Langfuse
+
+# Any other CrewAI Task kwarg can be added here; loader forwards it to Task(**kwargs):
+# async_execution: false
+# max_retries: 2
+# tools: [calculator]
+# context: [other_task_name]       # resolver hook only (not implemented yet)
+# output_pydantic: schemas:Result  # resolver hook only (not implemented yet)
+
+fallback:
+  description: 'Research the question: "{question}"'
+  expected_output: A clear, concise answer with key points and 1-3 examples if applicable.
+```
+
+**Reserved keys** consumed by the loader: `task_name`, `agent`, `prompt_key`,
+`fallback`. Everything else is generic wiring — forwarded verbatim to
+`Task(**kwargs)`. Adding a new CrewAI Task feature is usually a zero-code
+YAML edit.
+
+**LLM-text fields** (`description`, `expected_output`) resolve as
+`task.<prompt_key>` from Langfuse with the `fallback` block as the safety
+net. As with agents, only these fields are pulled from the merged config —
+wiring cannot be overridden via a Langfuse edit.
+
+Input substitution (`{var}` interpolation from `inputs`) is applied to both
+fields, using double-brace escaping so literal `{` / `}` in input values is
+safe.
+
+### 4.3.1 Concept-prefix namespacing
+
+Langfuse prompt names follow `<concept>.<key>`, applied by the per-concept
+loader (`_load_agents`, `_load_tasks`) before the `PromptLoader.get()` call:
+
+| Concept | YAML field   | Bare key                | Langfuse name              |
+|---------|--------------|-------------------------|----------------------------|
+| Agent   | `agent_name` | `researcher`            | `agent.researcher`         |
+| Task    | `prompt_key` | `research_task`         | `task.research_task`       |
+
+A bare key containing `.` raises with a clear error pointing at the YAML
+file — prevents accidental double-namespacing. Future concepts (`crew.`,
+`tool.`, ...) get the same treatment.
 
 ### 4.4 Flow
 
@@ -210,7 +260,10 @@ Flows are what `crew_app.py` calls. They give the UI a uniform interface
 ### 4.5 PromptLoader
 
 `core/prompts/loader.py` fetches a prompt by name + label from Langfuse and
-merges its `config` dict over a fallback dict supplied by the caller.
+merges its `config` dict over a fallback dict supplied by the caller. The
+loader is **concept-agnostic** — the `agent.` / `task.` prefix is applied
+by the caller (`crews/base.py`), not the loader. Future concepts plug in
+without changing this file.
 
 | Scenario | Behavior |
 |---|---|
@@ -221,7 +274,9 @@ merges its `config` dict over a fallback dict supplied by the caller.
 | Success | Returns `PromptResult(config, version=<langfuse>, name, label)`. |
 
 Returned `version` is `"fallback"` when the registry is not used; otherwise
-it is the stringified Langfuse version number.
+it is the stringified Langfuse version number. The merge is permissive at
+the loader layer; callers are responsible for pulling only the fields they
+trust to be Langfuse-managed (see `_pull_llm_text` in `crews/base.py`).
 
 ### 4.6 Observability
 
@@ -283,8 +338,8 @@ crew_version)` and propagated via `EnrichedConnectorManager` to every span.
 | Layer | Field(s) | Owner | When it changes |
 |---|---|---|---|
 | **Deployment** | `app_version` (`VERSION` file), `deployment_sha` | Build/release | Every deploy. |
-| **Crew recipe** | `crew_version` (semver on the crew class) | Crew authors | Manual PR bump when the recipe (agent list, task order, tools, formatting code) changes. |
-| **Per-run prompt resolution** | `agents_signature` (emitted on root span) + per-agent `prompt_version` entries | The runtime + Langfuse | Auto — whenever Langfuse serves a different prompt version for any agent. |
+| **Crew recipe** | `crew_version` (semver on the crew class) | Crew authors | Manual PR bump when the recipe (agent list, task order, tools, task-YAML wiring, formatting code) changes. |
+| **Per-run prompt resolution** | `agents_signature` + `tasks_signature` (root-span metadata), plus per-prompt `prompt_name`/`prompt_version`/`prompt_source` entries | Runtime + Langfuse | Auto — whenever Langfuse serves a different version for any agent or task prompt. |
 
 These three are independent filter axes in Langfuse: bucket by deployment, by
 recipe, or by resolved prompts, in any combination.
@@ -302,10 +357,11 @@ crew_app.py
                  ├─ EnrichedConnectorManager(_get_connectors(), ctx)
                  └─ ResearchCrew().run(inputs, obs)
                       ├─ assert self.crew_version
-                      ├─ PromptLoader.get("researcher", fallback=...)   ← Langfuse
-                      ├─ build Task(description.format(**safe_inputs))
+                      ├─ PromptLoader.get("agent.researcher", fallback=...)        ← Langfuse
+                      ├─ PromptLoader.get("task.research_task", fallback=...)      ← Langfuse
+                      ├─ build Task(description.format(**safe_inputs), **wiring)
                       ├─ Crew(agents, tasks, **get_crew_kwargs(obs))
-                      ├─ obs.span(crew_name, "chain", metadata={...prompt_meta, agents_signature, ...})
+                      ├─ obs.span(crew_name, "chain", metadata={...prompt_meta, agents_signature, tasks_signature, ...})
                       │   └─ kickoff_crew(crew, obs)
                       │        ├─ captures stdout/stderr
                       │        ├─ runs CrewAI internals (each step/task creates child spans
@@ -375,8 +431,12 @@ The file is selected by `ENVIRONMENT` (default `dev`). Cached after first read.
 
 ### Add a new crew
 
-1. **Agent YAML** — create `agents/<agent>.yaml` with `agent_name`, `fallback` dict.
-2. **Task YAML(s)** — create `tasks/<task>.yaml` with `description`, `expected_output`, `agent`.
+1. **Agent YAML** — create `agents/<agent>.yaml` with `agent_name`, `fallback`
+   dict (role/goal/backstory).
+2. **Task YAML(s)** — create `tasks/<task>.yaml` with `task_name`, `agent`,
+   `prompt_key`, and a `fallback` block (`description`, `expected_output`).
+   Any other CrewAI Task kwarg can be added at the top level and is forwarded
+   to `Task(**kwargs)`.
 3. **Crew class** — `crews/<name>_crew.py`:
    ```python
    class MyCrew(BaseCrew):
@@ -389,8 +449,10 @@ The file is selected by `ENVIRONMENT` (default `dev`). Cached after first read.
        def _task_yaml_names(self): return ["my_task.yaml"]
    ```
 4. **Flow** — `flows/<name>_flow.py` mirroring `ResearchFlow`.
-5. **Langfuse prompt** — create the prompt under the `agent_name` from the YAML,
-   label it `production`. Without this, the YAML fallback is used.
+5. **Langfuse prompts** — create one prompt per agent (`agent.<agent_name>`)
+   and one per task (`task.<prompt_key>`), labeled `production`. Easiest:
+   run `python scripts/seed_prompts.py` which walks both YAML directories.
+   Without these, the YAML fallback is used.
 6. **UI tab** — add a tab in `crew_app.py` that calls `_run_flow(MyFlow, {...})`.
 
 ### Add a new observability connector
@@ -404,10 +466,17 @@ The file is selected by `ENVIRONMENT` (default `dev`). Cached after first read.
 
 ### Edit a prompt without a deploy
 
-Edit the prompt in Langfuse UI, promote to `production` label. Active runs pick
+Works the same for **agent** (`agent.<name>`) and **task** (`task.<name>`)
+prompts: edit in the Langfuse UI, promote to `production`. Active runs pick
 it up after the cache TTL (`cache_ttl=300s` by default). The recipe
-(`crew_version`) does not need to change; the change shows up in
-`agents_signature` and per-agent `prompt_version` metadata on the trace.
+(`crew_version`) does not need to change; the new version shows up in
+`agents_signature` / `tasks_signature` and per-prompt `prompt_version`
+metadata on the trace.
+
+Only the LLM-text fields are honored from Langfuse: extra keys you might
+add to a prompt's Config dict are dropped at the loader. To change wiring
+(`agent`, `tools`, `context`, `output_pydantic`, ...) edit the YAML and bump
+`crew_version`.
 
 ---
 
@@ -464,8 +533,14 @@ ENVIRONMENT=dev
 python scripts/seed_prompts.py
 ```
 
-This populates the Langfuse `production` label for each agent. Without it, the
-app silently falls back to YAML `fallback` values from `agents/*.yaml`.
+Walks both `agents/*.yaml` and `tasks/*.yaml`, creates one Langfuse prompt
+per concept under its namespaced name (`agent.researcher`, `task.research_task`,
+…) at version 1, labeled `production`. Without it, the app silently falls
+back to the `fallback:` block of each YAML.
+
+If you already have un-prefixed prompts in Langfuse (e.g. `researcher`), the
+runtime will now fetch `agent.researcher` and miss them — either rename them
+in the Langfuse UI to preserve history, or re-seed for a fresh start.
 
 ### 8.2 Run the app
 
@@ -484,8 +559,10 @@ The app opens at `http://localhost:8501` with three tabs:
 Each result shows:
 
 - The model output.
-- A **Prompt sources** panel: per-agent prompt name + version + whether it came
-  from Langfuse (green) or the YAML fallback (yellow).
+- A **Prompt sources** panel split into **Agents** and **Tasks** sections —
+  each row shows the local name, the Langfuse prompt name (e.g.
+  `agent.researcher`, `task.research_task`), its version, and whether it
+  resolved from Langfuse (green) or the YAML fallback (yellow).
 - An expandable **stdout / stderr** capture from the CrewAI run.
 
 ### 8.3 Run an experiment
@@ -512,8 +589,10 @@ Each crew run produces one trace. Useful metadata fields to filter on:
 |---|---|---|
 | `crew_name` | Trace metadata + tag | Which crew (`researcher`, `fitness_training`). |
 | `crew_version` | Trace metadata | Which **recipe** version. Bumped manually. |
-| `agents_signature` | Root span metadata | Which **prompt versions** resolved (e.g. `"researcher@6"`). |
-| `agent.<name>.prompt_version` | Root span metadata | Per-agent prompt version drill-down. |
+| `agents_signature` | Root span metadata | Which **agent prompt versions** resolved (e.g. `"researcher@6"`). |
+| `tasks_signature` | Root span metadata | Which **task prompt versions** resolved (e.g. `"research@2"`). |
+| `agent.<name>.prompt_name` / `prompt_version` / `prompt_source` | Root span metadata | Per-agent drill-down. `prompt_name` is the namespaced Langfuse name (e.g. `agent.researcher`). |
+| `task.<name>.prompt_name` / `prompt_version` / `prompt_source` | Root span metadata | Per-task drill-down. |
 | `app_version` | Trace metadata + tag | Which app build. |
 | `deployment_sha` | Trace metadata + tag | Which commit. |
 | `session_id` / `user_id` | Trace metadata | Group by browser tab / user. |
@@ -521,15 +600,20 @@ Each crew run produces one trace. Useful metadata fields to filter on:
 Recommended bucketing:
 
 - Filter by `crew_version` → group runs of the same recipe.
-- Filter by `agents_signature` → group runs that resolved to the same prompt set.
-- Combine both → isolate "this recipe with these prompts" for clean A/B comparisons.
+- Filter by `agents_signature` + `tasks_signature` → group runs that
+  resolved to the same prompt set (agents and tasks both stable).
+- Combine all three → isolate "this recipe with these prompts" for clean
+  A/B comparisons across deploys.
 
 ### 8.5 Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | App fails at start with `Missing required environment variable` | `.env` not loaded or var missing. | Check `.env` in the repo root; verify the listed required vars are set. |
-| **Prompt sources** panel shows yellow "YAML fallback" warnings | Langfuse prompt not found at `production` label, or Langfuse unreachable. | Promote the prompt in Langfuse UI or check `LANGFUSE_*` env vars. Logs at WARNING level explain which. |
+| **Prompt sources** panel shows yellow "YAML fallback" warnings | Langfuse prompt not found at `production` label, or Langfuse unreachable. | Promote the prompt in Langfuse UI, or run `python scripts/seed_prompts.py`. Logs at WARNING level identify which. |
+| Yellow warnings after upgrading to namespaced prompts (`agent.X` / `task.X`) | Existing Langfuse prompts still under their old un-prefixed names. | Rename them in the Langfuse UI (preserves history) or re-seed via `scripts/seed_prompts.py`. |
+| `task YAML ... missing required key(s) 'agent' or 'fallback'` | Task YAML still in pre-split shape (description at top level). | Move `description` / `expected_output` into a `fallback:` block; add `prompt_key`. |
+| `prompt key '...' must be bare (no dots)` | A YAML `agent_name` or `prompt_key` contains a `.`. | Use bare names; the `agent.` / `task.` prefix is added automatically. |
 | `assert self.crew_version` fails | Subclass missed setting `crew_version`. | Add `crew_version = "1.0.0"` to the crew class. |
 | Datadog traces missing despite `DD_LLMOBS_ENABLED=1` | `ddtrace` not installed, or `DD_API_KEY` missing. | `pip install -r requirements.txt`; verify Datadog env vars. The boolean `_DD_LLMOBS_ACTIVE` in `crew_app.py` reflects whether init succeeded. |
 | Streamlit cache-miss errors inside CrewAI's ThreadPoolExecutor | Cached resources first resolved in a background thread. | `_run_flow` already pre-resolves `_get_langfuse()` and `_get_connectors()` in the main thread; do not move that resolution. |
@@ -537,10 +621,16 @@ Recommended bucketing:
 
 ### 8.6 Day-to-day workflow
 
-- **Edit a prompt:** Langfuse UI → save → promote to `production`. No deploy needed.
+- **Edit an agent or task prompt:** Langfuse UI → save the `agent.<name>`
+  or `task.<name>` prompt → promote to `production`. No deploy needed.
 - **Add an agent to a crew:** edit YAML + bump that crew's `crew_version`.
-- **Change a task description:** edit `tasks/<name>.yaml`. If semantics change
-  meaningfully, bump `crew_version`.
+- **Change a task instruction:** edit it in Langfuse (preferred — no deploy).
+  Or edit the `fallback:` block of `tasks/<name>.yaml` if you want the
+  default-in-version-control to change too (no `crew_version` bump unless
+  wiring changes).
+- **Change task wiring** (agent assignment, tools, context, output schema,
+  async, retries, ...): edit `tasks/<name>.yaml` at the top level (outside
+  the `fallback:` block) and bump `crew_version`.
 - **Add a new crew:** see [§7 Extension Points](#7-extension-points).
 - **Update skill packs (for AI coding agents):** `npx skills update`. Re-group
   under `.agents/skills/<vendor>/` if new skills landed flatly.
