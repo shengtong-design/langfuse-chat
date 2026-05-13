@@ -1,9 +1,10 @@
 """
-Seed Langfuse with initial prompt versions for all crew agents.
+Seed Langfuse with initial prompt versions for all CrewAI concepts.
 
-Run once to bootstrap Langfuse prompt management. Each prompt is created
-with the current YAML fallback defaults as version 1, labeled "production".
-After seeding, edit prompts in the Langfuse UI — no redeploy needed.
+Walks agents/*.yaml and tasks/*.yaml, namespaces each prompt
+(agent.<name>, task.<name>), and creates version 1 from the YAML fallback
+labeled "production". Idempotent re-runs create new versions on existing
+prompts; promote one by moving the label in the Langfuse UI.
 
 Run from project root:
   py -3.12 scripts/seed_prompts.py
@@ -15,6 +16,7 @@ Optional:
   SEED_LABEL         (default: production)
 """
 
+import sys
 import traceback
 from pathlib import Path
 
@@ -22,9 +24,25 @@ from scripts.bootstrap import setup
 setup()
 
 import os
+from typing import Iterable, Tuple
+
 import yaml
 
 from langfuse import Langfuse
+
+from crews.base import (
+    _AGENT_LLM_TEXT_FIELDS,
+    _AGENT_PROMPT_NAMESPACE,
+    _TASK_LLM_TEXT_FIELDS,
+    _TASK_PROMPT_NAMESPACE,
+    _namespaced,
+)
+
+_ROOT = Path(__file__).parent.parent
+_AGENTS_DIR = _ROOT / "agents"
+_TASKS_DIR = _ROOT / "tasks"
+
+LABEL = os.getenv("SEED_LABEL", "production")
 
 client = Langfuse(
     public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
@@ -32,34 +50,56 @@ client = Langfuse(
     base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
 )
 
-LABEL = os.getenv("SEED_LABEL", "production")
-_AGENTS_DIR = Path(__file__).parent.parent / "agents"
+
+def _collect(
+    directory: Path,
+    namespace: str,
+    key_field: str,
+    llm_text_fields: tuple,
+    prompt_body_field: str,
+) -> Iterable[Tuple[str, dict, str]]:
+    """Yield (langfuse_name, config_dict, prompt_body) for each concept YAML.
+
+    config_dict is restricted to the LLM-text field set so seeding mirrors
+    the runtime pull semantics (nothing else can flow into Langfuse via
+    this script).
+    """
+    for yaml_file in sorted(directory.glob("*.yaml")):
+        spec = yaml.safe_load(yaml_file.read_text()) or {}
+        fallback = spec.get("fallback") or {}
+        if not fallback:
+            print(f"  ! skipping {yaml_file.name}: no 'fallback' block")
+            continue
+        bare_key = spec.get(key_field) or yaml_file.stem
+        try:
+            name = _namespaced(namespace, bare_key, source=f"{directory.name}/{yaml_file.name}")
+        except ValueError as exc:
+            print(f"  ! skipping {yaml_file.name}: {exc}")
+            continue
+        config = {f: fallback[f] for f in llm_text_fields if f in fallback}
+        body = fallback.get(prompt_body_field, "")
+        yield name, config, body
 
 
-def _load_prompts():
-    """Build prompt list from agents/*.yaml files."""
+def seed() -> None:
     prompts = []
-    for yaml_file in sorted(_AGENTS_DIR.glob("*.yaml")):
-        spec = yaml.safe_load(yaml_file.read_text())
-        fallback = spec.get("fallback", {})
-        prompts.append({
-            "name": spec["langfuse_prompt_key"],
-            "config": fallback,
-        })
-    return prompts
+    prompts.extend(_collect(
+        _AGENTS_DIR, _AGENT_PROMPT_NAMESPACE, "agent_name",
+        _AGENT_LLM_TEXT_FIELDS, prompt_body_field="backstory",
+    ))
+    prompts.extend(_collect(
+        _TASKS_DIR, _TASK_PROMPT_NAMESPACE, "prompt_key",
+        _TASK_LLM_TEXT_FIELDS, prompt_body_field="description",
+    ))
 
-
-def seed():
-    prompts = _load_prompts()
     print(f"Seeding {len(prompts)} prompts (label='{LABEL}') ...\n")
     errors = 0
-    for p in prompts:
-        name = p["name"]
+    for name, config, body in prompts:
         try:
             result = client.create_prompt(
                 name=name,
-                prompt=p["config"].get("backstory", ""),
-                config=p["config"],
+                prompt=body,
+                config=config,
                 labels=[LABEL],
                 type="text",
             )
@@ -75,7 +115,7 @@ def seed():
         print(f"\n⚠️  {errors} prompt(s) failed. Check credentials and retry.")
         sys.exit(1)
 
-    print(f"\nDone. Open Langfuse → Prompts to view and edit them.")
+    print("\nDone. Open Langfuse → Prompts to view and edit them.")
     print(
         "To promote a new version: edit in Langfuse UI, then move the "
         f"'{LABEL}' label to the new version."

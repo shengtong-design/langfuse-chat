@@ -78,7 +78,6 @@ import streamlit as st
 from core.observability import ConnectorManager
 from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
-from core.observability.context import make_run_context, EnrichedConnectorManager
 from crews.common import extract_question
 from flows import FitnessFlow, ResearchFlow
 
@@ -136,17 +135,29 @@ def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool =
     st.subheader(heading)
     (st.markdown if markdown else st.write)(data.get("result", ""))
     pv = data.get("prompt_versions", {})
-    agents = {k.split(".")[1] for k in pv if k.endswith(".prompt_source")}
-    if agents:
+
+    def _render_section(prefix: str, label: str) -> None:
+        suffix = ".prompt_source"
+        names = sorted({
+            k[len(prefix):-len(suffix)]
+            for k in pv if k.startswith(prefix) and k.endswith(suffix)
+        })
+        if not names:
+            return
+        st.markdown(f"**{label}**")
+        for n in names:
+            prompt_name = pv.get(f"{prefix}{n}.prompt_name", n)
+            version = pv.get(f"{prefix}{n}.prompt_version", "?")
+            source = pv.get(f"{prefix}{n}.prompt_source", "yaml_fallback")
+            if source == "langfuse":
+                st.success(f"`{n}` — Langfuse **{prompt_name}** v{version}", icon="✅")
+            else:
+                st.warning(f"`{n}` — YAML fallback (prompt `{prompt_name}` not found in Langfuse)", icon="⚠️")
+
+    if any(k.endswith(".prompt_source") for k in pv):
         with st.expander("Prompt sources", expanded=True):
-            for agent in sorted(agents):
-                name = pv.get(f"agent.{agent}.prompt_name", agent)
-                version = pv.get(f"agent.{agent}.prompt_version", "?")
-                source = pv.get(f"agent.{agent}.prompt_source", "yaml_fallback")
-                if source == "langfuse":
-                    st.success(f"`{agent}` — Langfuse **{name}** v{version}", icon="✅")
-                else:
-                    st.warning(f"`{agent}` — YAML fallback (prompt `{name}` not found in Langfuse)", icon="⚠️")
+            _render_section("agent.", "Agents")
+            _render_section("task.", "Tasks")
     with st.expander("stdout / stderr", expanded=False):
         st.code(data.get("stdout") or "", language="text")
         if data.get("stderr"):
