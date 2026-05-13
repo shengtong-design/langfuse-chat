@@ -39,10 +39,13 @@ def kickoff_crew(
 def extract_question(input_item: Any) -> str:
     """Normalise a Langfuse dataset item input to a plain question string."""
     if isinstance(input_item, dict):
-        return str(
+        value = (
             input_item.get("question")
             or input_item.get("query")
             or input_item.get("input")
-            or input_item
         )
+        if value is None:
+            log.warning("extract_question: no 'question'/'query'/'input' key found; serialising dict %r", input_item)
+            return str(input_item)
+        return str(value)
     return str(input_item)

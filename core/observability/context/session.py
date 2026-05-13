@@ -5,7 +5,6 @@ the same tab). Environment metadata is loaded from config/environments/<env>.yam
 and falls back to env vars when the file is missing.
 """
 import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
@@ -15,14 +14,16 @@ import yaml
 from .run_context import RunContext
 
 _CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config" / "environments"
+_ENV_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
-@lru_cache(maxsize=4)
 def _load_env_config(environment: str) -> Dict[str, Any]:
-    config_file = _CONFIG_DIR / f"{environment}.yaml"
-    if config_file.exists():
-        return yaml.safe_load(config_file.read_text()) or {}
-    return {}
+    if environment not in _ENV_CONFIG_CACHE:
+        config_file = _CONFIG_DIR / f"{environment}.yaml"
+        _ENV_CONFIG_CACHE[environment] = (
+            yaml.safe_load(config_file.read_text()) or {} if config_file.exists() else {}
+        )
+    return _ENV_CONFIG_CACHE[environment]
 
 
 def _streamlit_session_id() -> str:
@@ -57,8 +58,8 @@ def make_run_context(crew_name: str = "", workflow_id: str = "") -> RunContext:
         environment=environment,
         app_version=env_cfg.get("app_version", os.getenv("APP_VERSION", "1.0.0")),
         crew_name=crew_name,
-        deployment_sha=env_cfg.get("deployment_sha", os.getenv("DEPLOYMENT_SHA", "")),
+        deployment_sha=env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", ""),
         crew_version=crew_versions.get(crew_name, ""),
-        model_version=os.getenv("MODEL_VERSION", ""),
+        model_version=env_cfg.get("model_defaults", {}).get("default", "") or os.getenv("MODEL_VERSION", ""),
         workflow_id=workflow_id or run_id,
     )

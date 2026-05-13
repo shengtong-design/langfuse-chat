@@ -112,7 +112,15 @@ def _get_connectors() -> ConnectorManager:
 def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
     """Instantiate a flow, kick it off, and return the result dict."""
     flow = flow_cls(connectors_factory=_get_connectors, langfuse_client=_get_langfuse())
-    return flow.kickoff(inputs=inputs)
+    result = flow.kickoff(inputs=inputs)
+    if isinstance(result, dict):
+        return result
+    return {
+        "result": getattr(result, "result", str(result)),
+        "stdout": getattr(result, "stdout", ""),
+        "stderr": getattr(result, "stderr", ""),
+        "prompt_versions": getattr(result, "prompt_versions", {}),
+    }
 
 
 def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool = False) -> None:

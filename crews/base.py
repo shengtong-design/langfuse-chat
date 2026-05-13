@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
+from crewai import Agent, Crew, Task
 
-if TYPE_CHECKING:
-    from core.observability.base import ObsManager
+from core.observability.context.callbacks import get_crew_kwargs
+from core.prompts import PromptLoader
+from .common import kickoff_crew
 
 _AGENTS_DIR = Path(__file__).parent.parent / "agents"
 _TASKS_DIR = Path(__file__).parent.parent / "tasks"
@@ -43,13 +45,9 @@ class BaseCrew(ABC):
     def run(
         self,
         inputs: Dict[str, Any],
-        obs: "ObsManager",
+        obs: Any,
         langfuse_client: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        from crewai import Agent, Crew, Task
-        from core.observability.context.callbacks import get_crew_kwargs
-        from core.prompts import PromptLoader
-
         agent_specs = {
             Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
             for n in self._agent_yaml_names
@@ -63,6 +61,8 @@ class BaseCrew(ABC):
         agents: Dict[str, Agent] = {}
         prompts = {}
         for name, spec in agent_specs.items():
+            if "langfuse_prompt_key" not in spec:
+                raise ValueError(f"agents/{name}.yaml is missing required key 'langfuse_prompt_key'")
             prompt = loader.get(
                 spec["langfuse_prompt_key"],
                 fallback=spec.get("fallback", {}),
@@ -74,14 +74,16 @@ class BaseCrew(ABC):
                 allow_delegation=spec.get("allow_delegation", False),
             )
 
-        tasks = [
-            Task(
-                description=spec["description"].format(**inputs),
-                expected_output=spec["expected_output"],
+        safe_inputs = {k: str(v).replace("{", "{{").replace("}", "}}") for k, v in inputs.items()}
+        tasks = []
+        for spec in task_specs:
+            if "description" not in spec or "agent" not in spec:
+                raise ValueError(f"task YAML is missing required key(s) 'description' or 'agent': {spec}")
+            tasks.append(Task(
+                description=spec["description"].format(**safe_inputs),
+                expected_output=spec.get("expected_output", ""),
                 agent=agents[spec["agent"]],
-            )
-            for spec in task_specs
-        ]
+            ))
 
         crew = Crew(
             agents=list(agents.values()),
@@ -95,7 +97,6 @@ class BaseCrew(ABC):
             for name, p in prompts.items()
         }
 
-        from crews.common import kickoff_crew
         with obs.span(
             self.crew_name, "chain",
             input_data=inputs,

@@ -17,6 +17,7 @@ Optional:
 
 import os
 import sys
+import traceback
 from pathlib import Path
 
 # Ensure project root is on sys.path when run as a script.
@@ -68,6 +69,7 @@ def seed():
             print(f"  ✓ {name}  →  version {result.version}")
         except Exception as e:
             print(f"  ✗ {name}  →  {e}")
+            traceback.print_exc()
             errors += 1
 
     client.flush()
