@@ -1,5 +1,4 @@
 agent_name: nutrition_advisor
-langfuse_prompt_key: fitness_nutrition_advisor
 verbose: true
 allow_delegation: false
 fallback:

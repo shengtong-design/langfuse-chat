@@ -60,10 +60,9 @@ class BaseCrew(ABC):
         agents: Dict[str, Agent] = {}
         prompts = {}
         for name, spec in agent_specs.items():
-            if "langfuse_prompt_key" not in spec:
-                raise ValueError(f"agents/{name}.yaml is missing required key 'langfuse_prompt_key'")
+            prompt_key = spec.get("agent_name") or name
             prompt = loader.get(
-                spec["langfuse_prompt_key"],
+                prompt_key,
                 fallback=spec.get("fallback", {}),
             )
             prompts[name] = prompt
