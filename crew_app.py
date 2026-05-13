@@ -48,10 +48,11 @@ def _init_datadog_llmobs() -> bool:
         return True  # ddtrace-run handles init externally
     try:
         os.environ.setdefault("DD_TRACE_ENABLED", "0")
-        # Suppress "datadog context not present in ASGI request scope" — Streamlit
-        # Cloud has no ASGI trace middleware; agentless LLMObs doesn't need it.
-        import warnings
-        warnings.filterwarnings("ignore", message=".*datadog context not present.*")
+        # Silence ddtrace logger warnings — Streamlit Cloud has no ASGI trace
+        # middleware, so ddtrace emits "context not present in ASGI request scope"
+        # on every request. Agentless LLMObs doesn't need ASGI correlation.
+        import logging
+        logging.getLogger("ddtrace").setLevel(logging.ERROR)
         from ddtrace.llmobs import LLMObs
         LLMObs.enable(
             ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
