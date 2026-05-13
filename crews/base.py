@@ -26,6 +26,27 @@ _TASK_LLM_TEXT_FIELDS = ("description", "expected_output")
 # "module:Class" import) before they can flow through raw — add when needed.
 _TASK_RESERVED_KEYS = frozenset({"task_name", "agent", "prompt_key", "fallback"})
 
+# Langfuse prompt namespace per CrewAI concept. The YAML key is kept bare and
+# human-readable; the prefix is added at the Langfuse boundary so an agent
+# prompt and a task prompt can never collide on the same Langfuse name.
+# Extend (don't reuse) for future concepts: crew., tool., knowledge., ...
+_AGENT_PROMPT_NAMESPACE = "agent."
+_TASK_PROMPT_NAMESPACE = "task."
+
+
+def _namespaced(namespace: str, key: str, *, source: str) -> str:
+    """Prepend the concept namespace to a bare YAML key.
+
+    Raises ValueError if the key already contains a dot — bare-key invariant
+    prevents accidental double-namespacing (e.g. "agent.agent.researcher").
+    """
+    if "." in key:
+        raise ValueError(
+            f"{source} prompt key {key!r} must be bare (no dots); "
+            f"the {namespace!r} prefix is added automatically."
+        )
+    return f"{namespace}{key}"
+
 
 class BaseCrew(ABC):
     """Template-method base for all crews.
@@ -85,7 +106,8 @@ class BaseCrew(ABC):
         prompts: Dict[str, PromptResult] = {}
         for name, spec in agent_specs.items():
             prompt_key = spec.get("agent_name") or name
-            prompt = loader.get(prompt_key, fallback=spec.get("fallback", {}))
+            langfuse_name = _namespaced(_AGENT_PROMPT_NAMESPACE, prompt_key, source=f"agents/{name}.yaml")
+            prompt = loader.get(langfuse_name, fallback=spec.get("fallback", {}))
             prompts[name] = prompt
             # NOTE: this merge is permissive — any key Langfuse returns in
             # prompt.config flows into Agent(...). Tasks use a tighter pull
@@ -124,8 +146,9 @@ class BaseCrew(ABC):
             stem = Path(filename).stem
             task_name = spec.get("task_name") or stem
             prompt_key = spec.get("prompt_key") or stem
+            langfuse_name = _namespaced(_TASK_PROMPT_NAMESPACE, prompt_key, source=f"tasks/{filename}")
 
-            prompt = loader.get(prompt_key, fallback=fallback)
+            prompt = loader.get(langfuse_name, fallback=fallback)
             # Pull only the LLM-text fields; ignore anything else Langfuse
             # might return so wiring cannot be overridden via a Langfuse edit.
             description = prompt.config.get("description", fallback["description"])

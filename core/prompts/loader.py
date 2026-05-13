@@ -1,35 +1,41 @@
 """
 ADDON: Runtime Prompt Management
 =================================
-Loads agent prompts from Langfuse at runtime with YAML fallback.
+Loads CrewAI concept prompts (agents, tasks, ...) from Langfuse at runtime
+with YAML fallback.
 
 Separation of concerns (per architecture guideline):
   GitHub  — YAML fallback = deterministic default contract
   Langfuse — runtime prompt = rapidly evolving AI behavior
 
-Usage in a crew:
+Usage in a crew (the per-concept caller in crews/base.py prepends the
+namespace prefix; this loader stays concept-agnostic):
+
     from core.prompts import PromptLoader
 
     loader = PromptLoader()
     prompt = loader.get(
-        "researcher_agent",            # name in Langfuse
+        "agent.researcher",            # namespaced name in Langfuse
         fallback=YAML_AGENT_DEFAULTS,  # GitHub fallback
         label="production",
     )
-    agent = Agent(
-        role=prompt.config["role"],
-        goal=prompt.config["goal"],
-        backstory=prompt.config["backstory"],
-        ...
-    )
-    # Pass prompt.as_metadata() into your root span so version is tracked
-    # in Langfuse traces and Datadog.
 
 Langfuse prompt setup:
-  - Create a prompt in Langfuse UI (type: "chat" or "text")
-  - Add a Config dict with keys: role, goal, backstory (match your YAML keys)
-  - Label it "production" to promote it; "staging" for experiments
-  - Langfuse config keys override the YAML fallback; missing keys keep defaults
+  - Create a prompt in Langfuse UI (type: "chat" or "text").
+  - Name it with the CrewAI concept prefix so agent and task prompts can
+    never collide on the same key:
+      * Agents → "agent.<name>"   e.g. "agent.researcher"
+      * Tasks  → "task.<name>"    e.g. "task.research_task"
+    YAML keys stay bare (`agent_name: researcher`, `prompt_key: research_task`);
+    the prefix is added by the per-concept loader. Extend the same pattern
+    for future concepts (crew., tool., knowledge.).
+  - Add a Config dict:
+      * Agents → role, goal, backstory  (match your YAML fallback keys)
+      * Tasks  → description, expected_output
+  - Label it "production" to promote it; "staging" for experiments.
+  - Langfuse config keys override the YAML fallback. For tasks, only the LLM-
+    text fields are pulled, so wiring (agent, context, tools, ...) cannot be
+    changed via a Langfuse edit.
 """
 import logging
 import os
