@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict
+from typing import Callable, Dict
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel
@@ -25,19 +25,17 @@ class FitnessFlow(Flow[FitnessState]):
     """Orchestrates the FitnessCrew to produce a personalized fitness plan.
 
     Usage:
-        flow = FitnessFlow(connectors_factory=_get_connectors, langfuse_client=lf)
+        flow = FitnessFlow(connectors_factory=_get_connectors)
         result = flow.kickoff(inputs={"goals": "...", "fitness_level": "beginner", ...})
     """
 
     def __init__(
         self,
         connectors_factory: Callable,
-        langfuse_client: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._connectors_factory = connectors_factory
-        self._langfuse_client = langfuse_client
 
     @start()
     def run_fitness_plan(self) -> Dict[str, Any]:
@@ -59,7 +57,6 @@ class FitnessFlow(Flow[FitnessState]):
             data = FitnessCrew().run(
                 inputs,
                 obs,
-                langfuse_client=self._langfuse_client,
             )
             obs.flush()
             self.state.result = data.get("result", "")

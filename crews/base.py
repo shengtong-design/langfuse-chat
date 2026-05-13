@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
 from crewai import Agent, Crew, Task
@@ -46,7 +46,6 @@ class BaseCrew(ABC):
         self,
         inputs: Dict[str, Any],
         obs: Any,
-        langfuse_client: Optional[Any] = None,
     ) -> Dict[str, Any]:
         agent_specs = {
             Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
@@ -57,7 +56,7 @@ class BaseCrew(ABC):
             for n in self._task_yaml_names
         ]
 
-        loader = PromptLoader(client=langfuse_client)
+        loader = PromptLoader()
         agents: Dict[str, Agent] = {}
         prompts = {}
         for name, spec in agent_specs.items():

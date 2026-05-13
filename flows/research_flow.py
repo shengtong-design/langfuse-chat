@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict
+from typing import Callable, Dict
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel
@@ -21,19 +21,17 @@ class ResearchFlow(Flow[ResearchState]):
     """Orchestrates the ResearchCrew for a single question.
 
     Usage:
-        flow = ResearchFlow(connectors_factory=_get_connectors, langfuse_client=lf)
+        flow = ResearchFlow(connectors_factory=_get_connectors)
         result = flow.kickoff(inputs={"question": "What is AI?"})
     """
 
     def __init__(
         self,
         connectors_factory: Callable,
-        langfuse_client: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._connectors_factory = connectors_factory
-        self._langfuse_client = langfuse_client
 
     @start()
     def run_research(self) -> Dict[str, Any]:
@@ -48,7 +46,6 @@ class ResearchFlow(Flow[ResearchState]):
             data = ResearchCrew().run(
                 {"question": self.state.question},
                 obs,
-                langfuse_client=self._langfuse_client,
             )
             obs.flush()
             self.state.result = data.get("result", "")

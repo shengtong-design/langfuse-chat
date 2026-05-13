@@ -111,8 +111,7 @@ def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
     run context on the first call.
     """
     connectors = _get_connectors()
-    langfuse = _get_langfuse()
-    flow = flow_cls(connectors_factory=lambda: connectors, langfuse_client=langfuse)
+    flow = flow_cls(connectors_factory=lambda: connectors)
     result = flow.kickoff(inputs=inputs)
     if isinstance(result, dict):
         return result
@@ -243,7 +242,6 @@ with tab_experiment:
                     q = extract_question(item.input)
                     flow = ResearchFlow(
                         connectors_factory=lambda: connectors,
-                        langfuse_client=langfuse_client,
                     )
                     result = flow.kickoff(inputs={"question": q})
                     return result.get("result", "") if isinstance(result, dict) else str(result)
