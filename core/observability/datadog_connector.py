@@ -78,7 +78,12 @@ class DatadogConnector(BaseConnector):
 
         handle = DatadogSpanHandle()
         with method(**span_kwargs):
-            annotate_kwargs: Dict[str, Any] = {"metadata": metadata or {}}
+            merged_metadata = dict(metadata or {})
+            if self._run_ctx is not None:
+                # Merge RunContext into metadata so all fields appear in span detail view.
+                # Tags are set separately for Datadog filtering/grouping.
+                merged_metadata.update(self._run_ctx.as_metadata())
+            annotate_kwargs: Dict[str, Any] = {"metadata": merged_metadata}
             if input_data:
                 annotate_kwargs["input_data"] = input_data
             if self._run_ctx is not None:

@@ -51,12 +51,19 @@ class RunContext:
         return tags
 
     def as_dd_tags(self) -> dict:
-        """Datadog-style tags: {'key': 'value'} dict for LLMObs.annotate(tags=...)."""
-        tags = {}
-        if self.environment:
-            tags["env"] = self.environment
-        if self.crew_name:
-            tags["crew"] = self.crew_name
-        if self.app_version:
-            tags["version"] = self.app_version
-        return tags
+        """Datadog-style tags: {'key': 'value'} dict for LLMObs.annotate(tags=...).
+
+        Tags are indexed in Datadog and usable for filtering/grouping.
+        All RunContext fields are included so native ddtrace CrewAI spans
+        that share the same trace inherit them via the root span context.
+        """
+        return {k: v for k, v in {
+            "env":            self.environment,
+            "crew":           self.crew_name,
+            "version":        self.app_version,
+            "deployment_sha": self.deployment_sha[:8] if self.deployment_sha else "",
+            "crew_version":   self.crew_version,
+            "model_version":  self.model_version,
+            "workflow_id":    self.workflow_id or self.run_id,
+            "session_id":     self.session_id,
+        }.items() if v}
