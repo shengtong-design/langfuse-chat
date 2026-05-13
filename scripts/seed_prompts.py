@@ -20,6 +20,10 @@ import sys
 import traceback
 from pathlib import Path
 
+# Put the project root on sys.path so `scripts.bootstrap` is importable when
+# this file is run directly as `python scripts/seed_prompts.py`.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from scripts.bootstrap import setup
 setup()
 
