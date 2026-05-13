@@ -95,6 +95,9 @@ class BaseCrew(ABC):
             prompt_meta[f"agent.{name}.prompt_name"] = p.name
             prompt_meta[f"agent.{name}.prompt_version"] = p.version
             prompt_meta[f"agent.{name}.prompt_source"] = "langfuse" if p.version != "fallback" else "yaml_fallback"
+            for field in ("role", "goal", "backstory"):
+                if field in p.config:
+                    prompt_meta[f"agent.{name}.{field}"] = p.config[field]
 
         with obs.span(
             self.crew_name, "chain",
