@@ -1,15 +1,20 @@
 task_name: workout
 agent: workout_designer
-description: |
-  Based on the fitness analysis, design a complete workout program that includes:
-  1. Weekly workout schedule
-  2. Specific exercises for each session
-  3. Sets, reps, and rest periods
-  4. Progression plan for the next 4-8 weeks
-  5. Warm-up and cool-down routines
+prompt_key: fitness_workout_task
 
-  Consider the user's available time of {time_per_week} hours per week
-  and equipment: {equipment}
-expected_output: >
-  A complete workout program in markdown format with weekly schedule,
-  detailed exercise descriptions, and progression guidelines.
+# description/expected_output come from Langfuse at runtime.
+# fallback is used only when Langfuse is unreachable.
+fallback:
+  description: |
+    Based on the fitness analysis, design a complete workout program that includes:
+    1. Weekly workout schedule
+    2. Specific exercises for each session
+    3. Sets, reps, and rest periods
+    4. Progression plan for the next 4-8 weeks
+    5. Warm-up and cool-down routines
+
+    Consider the user's available time of {time_per_week} hours per week
+    and equipment: {equipment}
+  expected_output: >
+    A complete workout program in markdown format with weekly schedule,
+    detailed exercise descriptions, and progression guidelines.
