@@ -64,12 +64,10 @@ class PromptLoader:
     defaults remain active for any key that Langfuse does not override.
 
     Resilience:
-      - Langfuse unreachable      → uses fallback silently
-      - Prompt label not found    → uses fallback with a warning
-      - Env vars not set          → uses fallback silently
-
-    Pass an existing Langfuse client to reuse connection pool and prompt cache:
-        loader = PromptLoader(client=langfuse_instance)
+      - Langfuse auth failure    → ERROR log, uses fallback
+      - Prompt not found         → WARNING log, uses fallback
+      - Langfuse unreachable     → WARNING log, uses fallback
+      - Env vars not set         → uses fallback silently (expected in local dev)
     """
 
     def __init__(self, client: Optional[Any] = None) -> None:
@@ -90,7 +88,7 @@ class PromptLoader:
                 base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
             )
         except Exception:
-            log.debug("PromptLoader: Langfuse client init failed", exc_info=True)
+            log.error("PromptLoader: failed to initialise Langfuse client", exc_info=True)
         return self._client
 
     def get(
@@ -103,32 +101,36 @@ class PromptLoader:
         """Fetch prompt from Langfuse and merge with fallback.
 
         Args:
-            name:      Prompt name in Langfuse (e.g. "researcher_agent").
+            name:      Prompt name in Langfuse (e.g. "researcher").
             fallback:  Dict of agent fields from YAML — used when Langfuse
                        is unavailable or the prompt does not exist yet.
             label:     Langfuse rollout label ("production", "staging", ...).
-            cache_ttl: Seconds the SDK caches the prompt locally (default 5 min).
+            cache_ttl: Seconds the SDK caches the prompt locally (default 300s).
 
         Returns:
             PromptResult with merged config and version metadata.
         """
         client = self._client_or_none()
-        if client is not None:
-            try:
-                prompt = client.get_prompt(name, label=label, cache_ttl_seconds=cache_ttl)
-                config = {**fallback, **dict(prompt.config)}
-                log.info("Loaded prompt '%s' version=%s label=%s", name, prompt.version, label)
-                return PromptResult(
-                    config=config,
-                    version=str(prompt.version),
-                    name=name,
-                    label=label,
-                )
-            except Exception:
-                log.warning(
-                    "Langfuse prompt '%s' (label=%s) unavailable — using YAML fallback",
-                    name,
-                    label,
-                    exc_info=True,
-                )
+        if client is None:
+            return PromptResult(config=dict(fallback), version="fallback", name=name, label=label)
+
+        try:
+            prompt = client.get_prompt(name, label=label, cache_ttl_seconds=cache_ttl)
+            config = {**fallback, **dict(prompt.config)}
+            log.info("Loaded prompt '%s' version=%s label=%s", name, prompt.version, label)
+            return PromptResult(
+                config=config,
+                version=str(prompt.version),
+                name=name,
+                label=label,
+            )
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "not found" in exc_str or "404" in exc_str:
+                log.warning("Prompt '%s' (label=%s) not found in Langfuse — using YAML fallback", name, label)
+            elif "auth" in exc_str or "401" in exc_str or "403" in exc_str:
+                log.error("Langfuse auth failure fetching prompt '%s' — check API keys", name, exc_info=True)
+            else:
+                log.warning("Langfuse unreachable fetching prompt '%s' — using YAML fallback", name, exc_info=True)
+
         return PromptResult(config=dict(fallback), version="fallback", name=name, label=label)
