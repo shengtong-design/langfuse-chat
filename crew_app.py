@@ -110,8 +110,16 @@ def _get_connectors() -> ConnectorManager:
 
 
 def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """Instantiate a flow, kick it off, and return the result dict."""
-    flow = flow_cls(connectors_factory=_get_connectors, langfuse_client=_get_langfuse())
+    """Instantiate a flow, kick it off, and return the result dict.
+
+    Both cached resources are resolved here (main Streamlit thread) so that
+    the cache-miss path never runs inside CrewAI's background ThreadPoolExecutor,
+    which would fail in Streamlit because @st.cache_resource requires a script
+    run context on the first call.
+    """
+    connectors = _get_connectors()
+    langfuse = _get_langfuse()
+    flow = flow_cls(connectors_factory=lambda: connectors, langfuse_client=langfuse)
     result = flow.kickoff(inputs=inputs)
     if isinstance(result, dict):
         return result
@@ -235,10 +243,12 @@ with tab_experiment:
                 items = list(dataset.items)
                 st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
 
+                connectors = _get_connectors()  # resolve in main thread before run_experiment threads start
+
                 def _task(item):
                     q = extract_question(item.input)
                     flow = ResearchFlow(
-                        connectors_factory=_get_connectors,
+                        connectors_factory=lambda: connectors,
                         langfuse_client=langfuse_client,
                     )
                     result = flow.kickoff(inputs={"question": q})

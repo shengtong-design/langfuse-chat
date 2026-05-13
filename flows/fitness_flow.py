@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 
 class FitnessState(BaseModel):
@@ -38,28 +41,32 @@ class FitnessFlow(Flow[FitnessState]):
 
     @start()
     def run_fitness_plan(self) -> Dict[str, Any]:
-        from core.observability.context import EnrichedConnectorManager, make_run_context
-        from crews.fitness_crew import FitnessCrew
+        try:
+            from core.observability.context import EnrichedConnectorManager, make_run_context
+            from crews.fitness_crew import FitnessCrew
 
-        inputs = {
-            "goals": self.state.goals,
-            "fitness_level": self.state.fitness_level,
-            "equipment": self.state.equipment,
-            "time_per_week": self.state.time_per_week,
-            "limitations": self.state.limitations,
-        }
-        obs = EnrichedConnectorManager(
-            self._connectors_factory(),
-            make_run_context("fitness_training"),
-        )
-        data = FitnessCrew().run(
-            inputs,
-            obs,
-            langfuse_client=self._langfuse_client,
-        )
-        obs.flush()
-        self.state.result = data.get("result", "")
-        self.state.prompt_versions = data.get("prompt_versions", {})
-        self.state.stdout = data.get("stdout", "")
-        self.state.stderr = data.get("stderr", "")
-        return data
+            inputs = {
+                "goals": self.state.goals,
+                "fitness_level": self.state.fitness_level,
+                "equipment": self.state.equipment,
+                "time_per_week": self.state.time_per_week,
+                "limitations": self.state.limitations,
+            }
+            obs = EnrichedConnectorManager(
+                self._connectors_factory(),
+                make_run_context("fitness_training"),
+            )
+            data = FitnessCrew().run(
+                inputs,
+                obs,
+                langfuse_client=self._langfuse_client,
+            )
+            obs.flush()
+            self.state.result = data.get("result", "")
+            self.state.prompt_versions = data.get("prompt_versions", {})
+            self.state.stdout = data.get("stdout", "")
+            self.state.stderr = data.get("stderr", "")
+            return data
+        except Exception:
+            log.exception("run_fitness_plan failed")
+            raise

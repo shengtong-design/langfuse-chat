@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 
 class ResearchState(BaseModel):
@@ -34,21 +37,25 @@ class ResearchFlow(Flow[ResearchState]):
 
     @start()
     def run_research(self) -> Dict[str, Any]:
-        from core.observability.context import EnrichedConnectorManager, make_run_context
-        from crews.research_crew import ResearchCrew
+        try:
+            from core.observability.context import EnrichedConnectorManager, make_run_context
+            from crews.research_crew import ResearchCrew
 
-        obs = EnrichedConnectorManager(
-            self._connectors_factory(),
-            make_run_context("researcher"),
-        )
-        data = ResearchCrew().run(
-            {"question": self.state.question},
-            obs,
-            langfuse_client=self._langfuse_client,
-        )
-        obs.flush()
-        self.state.result = data.get("result", "")
-        self.state.prompt_versions = data.get("prompt_versions", {})
-        self.state.stdout = data.get("stdout", "")
-        self.state.stderr = data.get("stderr", "")
-        return data
+            obs = EnrichedConnectorManager(
+                self._connectors_factory(),
+                make_run_context("researcher"),
+            )
+            data = ResearchCrew().run(
+                {"question": self.state.question},
+                obs,
+                langfuse_client=self._langfuse_client,
+            )
+            obs.flush()
+            self.state.result = data.get("result", "")
+            self.state.prompt_versions = data.get("prompt_versions", {})
+            self.state.stdout = data.get("stdout", "")
+            self.state.stderr = data.get("stderr", "")
+            return data
+        except Exception:
+            log.exception("run_research failed")
+            raise
