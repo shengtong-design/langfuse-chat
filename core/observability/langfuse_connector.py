@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any, Dict, Iterator, Optional
 
 from .base import BaseConnector, SpanHandle
@@ -43,14 +43,29 @@ class LangfuseConnector(BaseConnector):
             kwargs["input"] = input_data
         if metadata is not None:
             kwargs["metadata"] = metadata
-        # start_as_current_observation sets the OTel current span, so nested
-        # calls within this context automatically become child spans.
-        with self._client.start_as_current_observation(**kwargs) as obs:
+        # propagate_attributes MUST wrap start_as_current_observation — Langfuse
+        # reads session_id/user_id from the OTel context at trace creation time.
+        # Calling update_current_trace() after the span opens is too late for
+        # session grouping (it updates the object but not the session index).
+        with ExitStack() as stack:
             if self._run_ctx is not None:
                 try:
+                    from langfuse import propagate_attributes
+                    attrs: Dict[str, Any] = {}
+                    if self._run_ctx.session_id:
+                        attrs["session_id"] = self._run_ctx.session_id
+                    if self._run_ctx.user_id:
+                        attrs["user_id"] = self._run_ctx.user_id
+                    if attrs:
+                        stack.enter_context(propagate_attributes(**attrs))
+                except Exception:
+                    pass
+            obs = stack.enter_context(self._client.start_as_current_observation(**kwargs))
+            if self._run_ctx is not None:
+                try:
+                    # tags are trace-level metadata, not session routing — safe to
+                    # set after span opens.
                     self._client.update_current_trace(
-                        session_id=self._run_ctx.session_id or None,
-                        user_id=self._run_ctx.user_id or None,
                         tags=self._run_ctx.as_tags() or None,
                     )
                 except Exception:
