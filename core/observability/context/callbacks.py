@@ -10,9 +10,37 @@ get_crew_kwargs() is a no-op when obs is a plain ConnectorManager, so the crew
 files don't need to branch on whether the addon is active.
 """
 import logging
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 
 log = logging.getLogger(__name__)
+
+
+def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
+    """Extract structured input/output from a CrewAI AgentAction or AgentFinish."""
+    type_name = type(step).__name__
+
+    if type_name == "AgentFinish":
+        thought = str(getattr(step, "thought", "") or "")[:500]
+        raw_output = getattr(step, "output", None) or getattr(step, "return_values", {})
+        if isinstance(raw_output, dict):
+            raw_output = raw_output.get("output", str(raw_output))
+        return (
+            {"thought": thought},
+            {"result": str(raw_output)[:2000]},
+        )
+
+    if type_name == "AgentAction":
+        thought = str(getattr(step, "thought", "") or getattr(step, "log", "") or "")[:500]
+        return (
+            {
+                "thought": thought,
+                "tool": str(getattr(step, "tool", "")),
+                "tool_input": str(getattr(step, "tool_input", ""))[:500],
+            },
+            None,
+        )
+
+    return ({"step_type": type_name}, {"raw": str(step)[:500]})
 
 
 class CrewCallbacks:
@@ -24,12 +52,10 @@ class CrewCallbacks:
     def on_agent_step(self, step_output: Any) -> None:
         """Fires after each agent reasoning step (thought / tool use / observation)."""
         try:
-            output_str = str(step_output)[:2000]
-            with self._obs.span(
-                "agent.step", "agent",
-                input_data={"step": output_str},
-            ) as h:
-                h.update(output={"step": output_str})
+            input_data, output = _parse_step(step_output)
+            with self._obs.span("agent.step", "agent", input_data=input_data) as h:
+                if output is not None:
+                    h.update(output=output)
         except Exception:
             log.debug("agent.step span failed", exc_info=True)
 
