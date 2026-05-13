@@ -3,7 +3,6 @@ import io
 from typing import Any, Dict
 
 from .base import BaseCrew
-from core.observability.context.callbacks import get_crew_kwargs
 
 
 class FitnessTrainingCrew(BaseCrew):
@@ -13,6 +12,7 @@ class FitnessTrainingCrew(BaseCrew):
 
     def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
         from crewai import Agent, Crew, Task
+        from core.observability.context.callbacks import get_crew_kwargs
 
         goals = inputs["goals"]
         fitness_level = inputs["fitness_level"]

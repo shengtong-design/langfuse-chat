@@ -3,7 +3,6 @@ import io
 from typing import Any, Dict
 
 from .base import BaseCrew
-from core.observability.context.callbacks import get_crew_kwargs
 
 
 class ResearcherCrew(BaseCrew):
@@ -13,6 +12,7 @@ class ResearcherCrew(BaseCrew):
 
     def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
         from crewai import Agent, Crew, Task
+        from core.observability.context.callbacks import get_crew_kwargs
 
         question = inputs["question"]
 
