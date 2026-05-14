@@ -58,10 +58,14 @@ class EnrichedConnectorManager:
         return self._callbacks
 
     def _merged_metadata(self, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        # Sort the merged dict alphabetically so the trace metadata has a stable
+        # global key order. RunContext.as_metadata() and _build_prompt_meta()
+        # each sort their own output, but concatenating them here would otherwise
+        # produce three locally-sorted blocks rather than one globally-sorted dict.
         merged = self._ctx.as_metadata()
         if metadata:
             merged.update(metadata)
-        return merged
+        return dict(sorted(merged.items()))
 
     @contextmanager
     def span(
