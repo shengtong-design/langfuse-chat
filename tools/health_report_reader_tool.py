@@ -8,9 +8,12 @@ gracefully continue without the report.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from crewai.tools import BaseTool
+
+log = logging.getLogger(__name__)
 
 _NO_REPORT = "No health report was uploaded for this run."
 _SUPPORTED = {".txt", ".md", ".pdf"}
@@ -27,6 +30,10 @@ class HealthReportReaderTool(BaseTool):
     file_path: str = ""
 
     def _run(self, *args, **kwargs) -> str:
+        # log via the logging module (not print) so the line bypasses
+        # crews.common.kickoff_crew's stdout/stderr redirect and lands in
+        # the platform log, where CrewAI's verbose prints do not.
+        log.info("tool invoked: %s file_path=%r", self.name, self.file_path)
         if not self.file_path:
             return _NO_REPORT
         path = Path(self.file_path)
