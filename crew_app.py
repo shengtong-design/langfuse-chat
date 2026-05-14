@@ -84,9 +84,53 @@ def _init_datadog_llmobs() -> bool:
             service=os.getenv("DD_SERVICE", "crew-streamlit"),
             integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower() not in ("0", "false", "no"),
         )
+        _patch_ddtrace_crewai_task_keyerror()
         return True
     except ModuleNotFoundError:
         return False
+
+
+def _patch_ddtrace_crewai_task_keyerror() -> None:
+    """Work around a ddtrace 4.x bug in the LLMObs CrewAI integration.
+
+    `CrewAIIntegration._llmobs_set_tags_task` (in
+    ``ddtrace/llmobs/_integrations/crewai.py``) reads
+    ``self._crews_to_tasks[crew_id]`` with a bare-key lookup while every
+    other access uses ``.get(crew_id, {})``. When the crew_id hasn't been
+    registered yet — which happens when CrewAI Flow wrapping changes the
+    span start order, as it does in this app — the task-span enrichment
+    raises ``KeyError`` and ddtrace logs a noisy "Error extracting LLMObs
+    fields" traceback for every task. The span itself is still sent to
+    Datadog (the exception is caught in
+    ``BaseLLMIntegration.llmobs_set_tags``), but the log noise drowns
+    real errors.
+
+    Patch: pre-seed ``_crews_to_tasks[crew_id]`` to ``{}`` before calling
+    the original. Remove this once an upstream fix lands (file a PR if
+    one isn't open). Safe across ddtrace upgrades within 4.x: if the
+    upstream method changes or the bug is fixed, the wrapper still
+    works — pre-seeding an empty dict is a no-op when the key already
+    exists.
+    """
+    try:
+        from ddtrace.llmobs._integrations.crewai import CrewAIIntegration, _get_crew_id
+    except (ModuleNotFoundError, ImportError):
+        return
+    original = getattr(CrewAIIntegration, "_llmobs_set_tags_task", None)
+    if original is None or getattr(original, "_lf_patched", False):
+        return
+
+    def _safe_llmobs_set_tags_task(self, span, args, kwargs, response):
+        try:
+            crew_id = _get_crew_id(span, "task")
+            if crew_id and crew_id not in self._crews_to_tasks:
+                self._crews_to_tasks[crew_id] = {}
+        except Exception:
+            pass  # don't let our shim mask a different real error
+        return original(self, span, args, kwargs, response)
+
+    _safe_llmobs_set_tags_task._lf_patched = True  # type: ignore[attr-defined]
+    CrewAIIntegration._llmobs_set_tags_task = _safe_llmobs_set_tags_task
 
 
 import tempfile
