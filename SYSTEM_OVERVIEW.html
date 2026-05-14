@@ -275,7 +275,7 @@ so backends are plug-in.</p>
 <li>Two class attributes for trace identity:</li>
 <li><code>flow_name: ClassVar[str]</code> — short identifier (e.g. <code>"researcher"</code>).</li>
 <li><code>flow_version: ClassVar[str]</code> — semver. Bumped manually when the <em>flow</em>
-    recipe changes (see 4.8).</li>
+    recipe changes (see 4.9).</li>
 </ul>
 <p>The <code>@start</code> body is responsible for: building a <code>RunContext</code> via
 <code>make_run_context(...)</code>, wrapping the connector manager in
@@ -701,7 +701,190 @@ are intentionally insertion-ordered.</p>
 to insertion-order display, flip the <code>reverse</code> flag (one line, in
 <code>enriched.py</code>). The coupling is documented in-place.</p>
 <hr>
-<h2 id="5-runtime-sequence-one-research-run"><a class="toclink" href="#5-runtime-sequence-one-research-run">5. Runtime Sequence (one Research run)</a></h2>
+<h2 id="5-component-inventory"><a class="toclink" href="#5-component-inventory">5. Component Inventory</a></h2>
+<p>What's defined in the repo today. Update this section whenever you add a
+flow / crew / agent / task — every other section in this doc is structural
+and stable; this one is the concrete snapshot.</p>
+<h3 id="51-topology"><a class="toclink" href="#51-topology">5.1 Topology</a></h3>
+<pre><code>ResearchFlow                          [flows/research_flow.py]
+  flow_name      = &quot;researcher&quot;
+  flow_version   = &quot;1.0.0&quot;
+  state          = ResearchState(question, result, prompt_versions,
+                                 stdout, stderr)
+  └─ ResearchCrew                     [crews/research_crew.py]
+       crew_name    = &quot;crewai.researcher&quot;
+       crew_version = &quot;1.0.0&quot;
+       └─ researcher  ──&gt;  research_task
+            (agent.researcher)        (task.research_task)
+
+
+FitnessFlow                           [flows/fitness_flow.py]
+  flow_name      = &quot;fitness_training&quot;
+  flow_version   = &quot;1.0.0&quot;
+  state          = FitnessState(goals, fitness_level, equipment,
+                                 time_per_week, limitations,
+                                 result, prompt_versions,
+                                 stdout, stderr)
+  └─ FitnessCrew                      [crews/fitness_crew.py]
+       crew_name    = &quot;crewai.fitness_training&quot;
+       crew_version = &quot;1.0.0&quot;
+       ├─ fitness_analyst    ──&gt;  fitness_analysis_task
+       │    (agent.fitness_analyst)   (task.fitness_analysis_task)
+       ├─ workout_designer   ──&gt;  fitness_workout_task
+       │    (agent.workout_designer)  (task.fitness_workout_task)
+       └─ nutrition_advisor  ──&gt;  fitness_nutrition_task
+            (agent.nutrition_advisor) (task.fitness_nutrition_task)
+       _format_result: joins 3 markdown sections
+         (## Fitness Profile Analysis, ## Workout Program, ## Nutrition Plan)
+</code></pre>
+<h3 id="52-flows"><a class="toclink" href="#52-flows">5.2 Flows</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flow</th>
+<th>Module</th>
+<th>State model</th>
+<th>Crew</th>
+<th><code>@start</code> method</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ResearchFlow</code></td>
+<td><code>flows/research_flow.py</code></td>
+<td><code>ResearchState</code></td>
+<td><code>ResearchCrew</code></td>
+<td><code>run_research()</code></td>
+</tr>
+<tr>
+<td><code>FitnessFlow</code></td>
+<td><code>flows/fitness_flow.py</code></td>
+<td><code>FitnessState</code></td>
+<td><code>FitnessCrew</code></td>
+<td><code>run_fitness_plan()</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="53-crews"><a class="toclink" href="#53-crews">5.3 Crews</a></h3>
+<table>
+<thead>
+<tr>
+<th>Crew</th>
+<th><code>crew_name</code></th>
+<th>Agents (in order)</th>
+<th>Tasks (in execution order)</th>
+<th><code>_format_result</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ResearchCrew</code></td>
+<td><code>crewai.researcher</code></td>
+<td><code>researcher</code></td>
+<td><code>research</code></td>
+<td>default — <code>str(crew_result)</code></td>
+</tr>
+<tr>
+<td><code>FitnessCrew</code></td>
+<td><code>crewai.fitness_training</code></td>
+<td><code>fitness_analyst</code>, <code>workout_designer</code>, <code>nutrition_advisor</code></td>
+<td><code>analysis</code>, <code>workout</code>, <code>nutrition</code></td>
+<td>custom — joins 3 markdown sections</td>
+</tr>
+</tbody>
+</table>
+<h3 id="54-agents"><a class="toclink" href="#54-agents">5.4 Agents</a></h3>
+<table>
+<thead>
+<tr>
+<th>YAML</th>
+<th><code>prompt_key</code> (→ Langfuse <code>agent.&lt;key&gt;</code>)</th>
+<th>Fallback role</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agents/researcher.yaml</code></td>
+<td><code>researcher</code></td>
+<td>Researcher</td>
+<td><code>ResearchCrew</code></td>
+</tr>
+<tr>
+<td><code>agents/fitness_analyst.yaml</code></td>
+<td><code>fitness_analyst</code></td>
+<td>Fitness Analyst</td>
+<td><code>FitnessCrew</code></td>
+</tr>
+<tr>
+<td><code>agents/workout_designer.yaml</code></td>
+<td><code>workout_designer</code></td>
+<td>Workout Program Designer</td>
+<td><code>FitnessCrew</code></td>
+</tr>
+<tr>
+<td><code>agents/nutrition_advisor.yaml</code></td>
+<td><code>nutrition_advisor</code></td>
+<td>Nutrition Advisor</td>
+<td><code>FitnessCrew</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="55-tasks"><a class="toclink" href="#55-tasks">5.5 Tasks</a></h3>
+<table>
+<thead>
+<tr>
+<th>YAML</th>
+<th><code>task_name</code></th>
+<th><code>prompt_key</code> (→ Langfuse <code>task.&lt;key&gt;</code>)</th>
+<th>Owning agent</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tasks/research_task.yaml</code></td>
+<td><code>research</code></td>
+<td><code>research_task</code></td>
+<td><code>researcher</code></td>
+<td><code>ResearchCrew</code></td>
+</tr>
+<tr>
+<td><code>tasks/fitness_analysis_task.yaml</code></td>
+<td><code>analysis</code></td>
+<td><code>fitness_analysis_task</code></td>
+<td><code>fitness_analyst</code></td>
+<td><code>FitnessCrew</code></td>
+</tr>
+<tr>
+<td><code>tasks/fitness_workout_task.yaml</code></td>
+<td><code>workout</code></td>
+<td><code>fitness_workout_task</code></td>
+<td><code>workout_designer</code></td>
+<td><code>FitnessCrew</code></td>
+</tr>
+<tr>
+<td><code>tasks/fitness_nutrition_task.yaml</code></td>
+<td><code>nutrition</code></td>
+<td><code>fitness_nutrition_task</code></td>
+<td><code>nutrition_advisor</code></td>
+<td><code>FitnessCrew</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="56-langfuse-prompts-after-scriptsseed_promptspy"><a class="toclink" href="#56-langfuse-prompts-after-scriptsseed_promptspy">5.6 Langfuse prompts (after <code>scripts/seed_prompts.py</code>)</a></h3>
+<p>Running the seeder creates 8 prompts at the <code>production</code> label — one per
+agent/task YAML file:</p>
+<pre><code>agent.researcher              task.research_task
+agent.fitness_analyst         task.fitness_analysis_task
+agent.workout_designer        task.fitness_workout_task
+agent.nutrition_advisor       task.fitness_nutrition_task
+</code></pre>
+<p>The seeder is name-idempotent: re-running creates a <em>new version</em> on each
+existing prompt (the <code>production</code> label floats to the newest). Use it to
+re-publish the YAML fallback as a fresh Langfuse version.</p>
+<hr>
+<h2 id="6-runtime-sequence-one-research-run"><a class="toclink" href="#6-runtime-sequence-one-research-run">6. Runtime Sequence (one Research run)</a></h2>
 <pre><code>crew_app.py
   └─ _run_flow(ResearchFlow, {&quot;question&quot;: &quot;...&quot;})
        └─ ResearchFlow(connectors_factory=lambda: connectors).kickoff(inputs)
@@ -756,7 +939,7 @@ to insertion-order display, flip the <code>reverse</code> flag (one line, in
   └─ _show_output(...) renders result + Prompt sources panel + stdout/stderr expander
 </code></pre>
 <hr>
-<h2 id="6-configuration"><a class="toclink" href="#6-configuration">6. Configuration</a></h2>
+<h2 id="7-configuration"><a class="toclink" href="#7-configuration">7. Configuration</a></h2>
 <h3 id="environment-variables"><a class="toclink" href="#environment-variables">Environment variables</a></h3>
 <h4 id="required"><a class="toclink" href="#required">Required</a></h4>
 <table>
@@ -908,7 +1091,7 @@ model_defaults:
 <p><code>.env</code> at the repo root is loaded by <code>crew_app.py</code> at import time (via
 <code>python-dotenv</code>). It is gitignored and must remain so.</p>
 <hr>
-<h2 id="7-extension-points"><a class="toclink" href="#7-extension-points">7. Extension Points</a></h2>
+<h2 id="8-extension-points"><a class="toclink" href="#8-extension-points">8. Extension Points</a></h2>
 <h3 id="add-a-new-crew"><a class="toclink" href="#add-a-new-crew">Add a new crew</a></h3>
 <ol>
 <li><strong>Agent YAML</strong> — <code>agents/&lt;agent&gt;.yaml</code> with <code>prompt_key</code>, optional <code>verbose</code>/<code>allow_delegation</code>, and a <code>fallback</code> dict (<code>role</code>, <code>goal</code>, <code>backstory</code>).</li>
@@ -955,8 +1138,8 @@ verbatim into <code>Task(**)</code>. Note: <code>context</code> (Task→Task dep
 <code>output_pydantic</code> (<code>"module:Class"</code> style) need a resolver pass before raw
 passthrough is safe — add when needed.</p>
 <hr>
-<h2 id="8-user-instructions"><a class="toclink" href="#8-user-instructions">8. User Instructions</a></h2>
-<h3 id="81-first-time-setup"><a class="toclink" href="#81-first-time-setup">8.1 First-time setup</a></h3>
+<h2 id="9-user-instructions"><a class="toclink" href="#9-user-instructions">9. User Instructions</a></h2>
+<h3 id="91-first-time-setup"><a class="toclink" href="#91-first-time-setup">9.1 First-time setup</a></h3>
 <pre><code class="language-bash">git clone &lt;repo-url&gt; langfuse-chat
 cd langfuse-chat
 
@@ -985,7 +1168,7 @@ ENVIRONMENT=dev
 <p>Expected output: one <code>[OK]</code> line per agent/task YAML. Re-running creates
 new versions on existing prompts (idempotent w.r.t. names; not w.r.t.
 versions) — the <code>production</code> label floats to the newest.</p>
-<h3 id="82-run-the-app"><a class="toclink" href="#82-run-the-app">8.2 Run the app</a></h3>
+<h3 id="92-run-the-app"><a class="toclink" href="#92-run-the-app">9.2 Run the app</a></h3>
 <pre><code class="language-bash">py -3.12 -m streamlit run crew_app.py
 </code></pre>
 <p>The app opens at <code>http://localhost:8501</code> with three tabs:</p>
@@ -1008,7 +1191,7 @@ versions) — the <code>production</code> label floats to the newest.</p>
 or <code>flows/</code> requires a full Streamlit restart (Ctrl-C, re-run). Streamlit
 hot-reloads the <em>script body</em> but not already-imported modules.</p>
 </blockquote>
-<h3 id="83-run-an-experiment"><a class="toclink" href="#83-run-an-experiment">8.3 Run an experiment</a></h3>
+<h3 id="93-run-an-experiment"><a class="toclink" href="#93-run-an-experiment">9.3 Run an experiment</a></h3>
 <p>In the <strong>Experiments</strong> tab:</p>
 <ol>
 <li>Enter the Langfuse dataset name (must already exist in your project).</li>
@@ -1019,7 +1202,7 @@ hot-reloads the <em>script body</em> but not already-imported modules.</p>
 <p>Headless alternative:</p>
 <pre><code class="language-bash">py -3.12 scripts/run_experiment.py
 </code></pre>
-<h3 id="84-read-traces-in-langfuse"><a class="toclink" href="#84-read-traces-in-langfuse">8.4 Read traces in Langfuse</a></h3>
+<h3 id="94-read-traces-in-langfuse"><a class="toclink" href="#94-read-traces-in-langfuse">9.4 Read traces in Langfuse</a></h3>
 <p>Filter keys to know:</p>
 <table>
 <thead>
@@ -1093,7 +1276,7 @@ hot-reloads the <em>script body</em> but not already-imported modules.</p>
 <li>Fix <code>crew_version</code>, vary <code>tasks_signature</code> → A/B compare task prompt versions.</li>
 <li>Fix <code>flow_version</code>, vary <code>crew_version</code> → see crew-recipe evolution under a stable flow.</li>
 </ul>
-<h3 id="85-troubleshooting"><a class="toclink" href="#85-troubleshooting">8.5 Troubleshooting</a></h3>
+<h3 id="95-troubleshooting"><a class="toclink" href="#95-troubleshooting">9.5 Troubleshooting</a></h3>
 <table>
 <thead>
 <tr>
@@ -1150,16 +1333,16 @@ hot-reloads the <em>script body</em> but not already-imported modules.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="86-day-to-day-workflow"><a class="toclink" href="#86-day-to-day-workflow">8.6 Day-to-day workflow</a></h3>
+<h3 id="96-day-to-day-workflow"><a class="toclink" href="#96-day-to-day-workflow">9.6 Day-to-day workflow</a></h3>
 <ul>
 <li><strong>Edit a prompt</strong> → Langfuse UI → save → promote to <code>production</code>. No deploy. Cache TTL applies.</li>
 <li><strong>Add an agent to a crew</strong> → new agent YAML + edit <code>_agent_yaml_names</code> + bump that crew's <code>crew_version</code>. Re-seed.</li>
 <li><strong>Add a task field (e.g. <code>tools</code>)</strong> → edit the task YAML, add the key alongside <code>agent:</code>. No code change. Bump <code>crew_version</code> because wiring changed.</li>
 <li><strong>Change flow state shape</strong> → edit the Pydantic state model, bump <code>flow_version</code>. <code>crew_version</code> does <em>not</em> change unless the crew also changed.</li>
-<li><strong>Add a new crew</strong> → see §7.</li>
+<li><strong>Add a new crew</strong> → see §8.</li>
 </ul>
 <hr>
-<h2 id="9-related-documents-pointers"><a class="toclink" href="#9-related-documents-pointers">9. Related Documents &amp; Pointers</a></h2>
+<h2 id="10-related-documents-pointers"><a class="toclink" href="#10-related-documents-pointers">10. Related Documents &amp; Pointers</a></h2>
 <ul>
 <li><code>.agents/README.md</code> — AI-coding-agent skill packs (CrewAI + Langfuse), layout convention, and how teammates restore via <code>npx skills experimental_install</code>.</li>
 <li><code>core/prompts/loader.py</code> module docstring — Langfuse prompt setup details.</li>

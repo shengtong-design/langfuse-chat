@@ -162,7 +162,7 @@ A Flow is a `crewai.flow.flow.Flow[State]` subclass with:
 - Two class attributes for trace identity:
   - `flow_name: ClassVar[str]` — short identifier (e.g. `"researcher"`).
   - `flow_version: ClassVar[str]` — semver. Bumped manually when the *flow*
-    recipe changes (see 4.8).
+    recipe changes (see 4.9).
 
 The `@start` body is responsible for: building a `RunContext` via
 `make_run_context(...)`, wrapping the connector manager in
@@ -421,7 +421,98 @@ to insertion-order display, flip the `reverse` flag (one line, in
 
 ---
 
-## 5. Runtime Sequence (one Research run)
+## 5. Component Inventory
+
+What's defined in the repo today. Update this section whenever you add a
+flow / crew / agent / task — every other section in this doc is structural
+and stable; this one is the concrete snapshot.
+
+### 5.1 Topology
+
+```
+ResearchFlow                          [flows/research_flow.py]
+  flow_name      = "researcher"
+  flow_version   = "1.0.0"
+  state          = ResearchState(question, result, prompt_versions,
+                                 stdout, stderr)
+  └─ ResearchCrew                     [crews/research_crew.py]
+       crew_name    = "crewai.researcher"
+       crew_version = "1.0.0"
+       └─ researcher  ──>  research_task
+            (agent.researcher)        (task.research_task)
+
+
+FitnessFlow                           [flows/fitness_flow.py]
+  flow_name      = "fitness_training"
+  flow_version   = "1.0.0"
+  state          = FitnessState(goals, fitness_level, equipment,
+                                 time_per_week, limitations,
+                                 result, prompt_versions,
+                                 stdout, stderr)
+  └─ FitnessCrew                      [crews/fitness_crew.py]
+       crew_name    = "crewai.fitness_training"
+       crew_version = "1.0.0"
+       ├─ fitness_analyst    ──>  fitness_analysis_task
+       │    (agent.fitness_analyst)   (task.fitness_analysis_task)
+       ├─ workout_designer   ──>  fitness_workout_task
+       │    (agent.workout_designer)  (task.fitness_workout_task)
+       └─ nutrition_advisor  ──>  fitness_nutrition_task
+            (agent.nutrition_advisor) (task.fitness_nutrition_task)
+       _format_result: joins 3 markdown sections
+         (## Fitness Profile Analysis, ## Workout Program, ## Nutrition Plan)
+```
+
+### 5.2 Flows
+
+| Flow | Module | State model | Crew | `@start` method |
+|---|---|---|---|---|
+| `ResearchFlow` | `flows/research_flow.py` | `ResearchState` | `ResearchCrew` | `run_research()` |
+| `FitnessFlow` | `flows/fitness_flow.py` | `FitnessState` | `FitnessCrew` | `run_fitness_plan()` |
+
+### 5.3 Crews
+
+| Crew | `crew_name` | Agents (in order) | Tasks (in execution order) | `_format_result` |
+|---|---|---|---|---|
+| `ResearchCrew` | `crewai.researcher` | `researcher` | `research` | default — `str(crew_result)` |
+| `FitnessCrew` | `crewai.fitness_training` | `fitness_analyst`, `workout_designer`, `nutrition_advisor` | `analysis`, `workout`, `nutrition` | custom — joins 3 markdown sections |
+
+### 5.4 Agents
+
+| YAML | `prompt_key` (→ Langfuse `agent.<key>`) | Fallback role | Used by |
+|---|---|---|---|
+| `agents/researcher.yaml` | `researcher` | Researcher | `ResearchCrew` |
+| `agents/fitness_analyst.yaml` | `fitness_analyst` | Fitness Analyst | `FitnessCrew` |
+| `agents/workout_designer.yaml` | `workout_designer` | Workout Program Designer | `FitnessCrew` |
+| `agents/nutrition_advisor.yaml` | `nutrition_advisor` | Nutrition Advisor | `FitnessCrew` |
+
+### 5.5 Tasks
+
+| YAML | `task_name` | `prompt_key` (→ Langfuse `task.<key>`) | Owning agent | Used by |
+|---|---|---|---|---|
+| `tasks/research_task.yaml` | `research` | `research_task` | `researcher` | `ResearchCrew` |
+| `tasks/fitness_analysis_task.yaml` | `analysis` | `fitness_analysis_task` | `fitness_analyst` | `FitnessCrew` |
+| `tasks/fitness_workout_task.yaml` | `workout` | `fitness_workout_task` | `workout_designer` | `FitnessCrew` |
+| `tasks/fitness_nutrition_task.yaml` | `nutrition` | `fitness_nutrition_task` | `nutrition_advisor` | `FitnessCrew` |
+
+### 5.6 Langfuse prompts (after `scripts/seed_prompts.py`)
+
+Running the seeder creates 8 prompts at the `production` label — one per
+agent/task YAML file:
+
+```
+agent.researcher              task.research_task
+agent.fitness_analyst         task.fitness_analysis_task
+agent.workout_designer        task.fitness_workout_task
+agent.nutrition_advisor       task.fitness_nutrition_task
+```
+
+The seeder is name-idempotent: re-running creates a *new version* on each
+existing prompt (the `production` label floats to the newest). Use it to
+re-publish the YAML fallback as a fresh Langfuse version.
+
+---
+
+## 6. Runtime Sequence (one Research run)
 
 ```
 crew_app.py
@@ -480,7 +571,7 @@ crew_app.py
 
 ---
 
-## 6. Configuration
+## 7. Configuration
 
 ### Environment variables
 
@@ -541,7 +632,7 @@ Selected by `ENVIRONMENT`. Cached in-process after first read.
 
 ---
 
-## 7. Extension Points
+## 8. Extension Points
 
 ### Add a new crew
 
@@ -597,9 +688,9 @@ passthrough is safe — add when needed.
 
 ---
 
-## 8. User Instructions
+## 9. User Instructions
 
-### 8.1 First-time setup
+### 9.1 First-time setup
 
 ```bash
 git clone <repo-url> langfuse-chat
@@ -638,7 +729,7 @@ Expected output: one `[OK]` line per agent/task YAML. Re-running creates
 new versions on existing prompts (idempotent w.r.t. names; not w.r.t.
 versions) — the `production` label floats to the newest.
 
-### 8.2 Run the app
+### 9.2 Run the app
 
 ```bash
 py -3.12 -m streamlit run crew_app.py
@@ -663,7 +754,7 @@ Each result panel shows:
 > or `flows/` requires a full Streamlit restart (Ctrl-C, re-run). Streamlit
 > hot-reloads the *script body* but not already-imported modules.
 
-### 8.3 Run an experiment
+### 9.3 Run an experiment
 
 In the **Experiments** tab:
 
@@ -679,7 +770,7 @@ Headless alternative:
 py -3.12 scripts/run_experiment.py
 ```
 
-### 8.4 Read traces in Langfuse
+### 9.4 Read traces in Langfuse
 
 Filter keys to know:
 
@@ -703,7 +794,7 @@ Useful combinations:
 - Fix `crew_version`, vary `tasks_signature` → A/B compare task prompt versions.
 - Fix `flow_version`, vary `crew_version` → see crew-recipe evolution under a stable flow.
 
-### 8.5 Troubleshooting
+### 9.5 Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -717,17 +808,17 @@ Useful combinations:
 | `npx skills add ...` reinstalls flat under `.agents/skills/<name>/` | The `skills` CLI doesn't know about per-vendor subfolders. | Move into `.agents/skills/<vendor>/` and re-point the Junction at `.claude/skills/<name>`. See `.agents/README.md`. |
 | Seeder crashes with `UnicodeEncodeError` on Windows | (Should be fixed.) Earlier versions used Unicode glyphs in `print()`. | Pull the latest; the seeder now emits ASCII `[OK]` / `[FAIL]`. |
 
-### 8.6 Day-to-day workflow
+### 9.6 Day-to-day workflow
 
 - **Edit a prompt** → Langfuse UI → save → promote to `production`. No deploy. Cache TTL applies.
 - **Add an agent to a crew** → new agent YAML + edit `_agent_yaml_names` + bump that crew's `crew_version`. Re-seed.
 - **Add a task field (e.g. `tools`)** → edit the task YAML, add the key alongside `agent:`. No code change. Bump `crew_version` because wiring changed.
 - **Change flow state shape** → edit the Pydantic state model, bump `flow_version`. `crew_version` does *not* change unless the crew also changed.
-- **Add a new crew** → see §7.
+- **Add a new crew** → see §8.
 
 ---
 
-## 9. Related Documents & Pointers
+## 10. Related Documents & Pointers
 
 - `.agents/README.md` — AI-coding-agent skill packs (CrewAI + Langfuse), layout convention, and how teammates restore via `npx skills experimental_install`.
 - `core/prompts/loader.py` module docstring — Langfuse prompt setup details.
