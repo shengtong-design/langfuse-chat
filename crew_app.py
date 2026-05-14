@@ -48,15 +48,24 @@ logging.basicConfig(
 
 
 def _init_datadog_llmobs() -> bool:
-    """Enable Datadog LLMObs (LLM-span pipeline only; APM tracing stays off).
+    """Enable Datadog LLMObs with native ddtrace integrations turned on.
+
+    Native integrations auto-instrument CrewAI / OpenAI / LiteLLM — this is
+    the "default OpenTelemetry to Datadog" path; we no longer hand-roll
+    spans via DatadogConnector. The DatadogConnector class still exists
+    in ``core/observability/datadog_connector.py`` if it ever needs to
+    be revived, but it is intentionally not wired into _get_connectors()
+    so Datadog only sees ddtrace's native spans (no double instrumentation,
+    no RunContext leak from our code path). Override with
+    ``DD_LLMOBS_INTEGRATIONS_ENABLED=false`` to turn auto-patching off.
 
     Deliberately called *after* the top-level package imports so ddtrace's
     import wrapper doesn't sit between Python's loader and our own modules
     during cold start — we hit an intermittent
     ``KeyError: 'core.observability.base'`` on Streamlit Cloud when ddtrace
-    was initialised first. ``integrations_enabled`` defaults to false, so
-    auto-patching of CrewAI/OpenAI imports is not relied upon; LangFuse SDK
-    is imported lazily inside ``_get_langfuse``, which runs well after this.
+    was initialised first. By the time this runs, ``crewai`` is already
+    in ``sys.modules`` so ddtrace's patcher operates on the live module
+    object rather than wrapping our re-imports.
     """
     if os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
         return False
@@ -73,7 +82,7 @@ def _init_datadog_llmobs() -> bool:
             agentless_enabled=os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on"),
             env=os.getenv("DD_ENV"),
             service=os.getenv("DD_SERVICE", "crew-streamlit"),
-            integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "false").strip().lower() not in ("0", "false", "no"),
+            integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower() not in ("0", "false", "no"),
         )
         return True
     except ModuleNotFoundError:
@@ -88,7 +97,6 @@ from typing import Any, Dict
 import streamlit as st
 
 from core.observability import ConnectorManager
-from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
 from crews.common import extract_question
 from flows import FitnessFlow, ResearchFlow
@@ -116,11 +124,13 @@ def _get_langfuse():
 
 def _get_connectors() -> ConnectorManager:
     # Not cached: connectors are cheap; LangfuseConnector reuses _get_langfuse()
-    # which IS cached. Fresh instances every render prevents stale class attributes
-    # from surviving hot-reloads (e.g. handles_step_callbacks on DatadogConnector).
+    # which IS cached. Fresh instances every render avoid stale class attrs
+    # surviving hot-reloads. Datadog is intentionally absent — ddtrace's native
+    # CrewAI/OpenAI integrations (enabled in _init_datadog_llmobs) produce all
+    # the Datadog spans now; our DatadogConnector is dormant in
+    # core/observability/datadog_connector.py if it needs to be revived.
     return ConnectorManager([
         LangfuseConnector(_get_langfuse()),
-        DatadogConnector(_DD_LLMOBS_ACTIVE),
     ])
 
 
