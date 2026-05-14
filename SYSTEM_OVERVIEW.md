@@ -31,56 +31,89 @@ so backends are plug-in.
 
 ## 2. Architecture at a Glance
 
+```mermaid
+flowchart TB
+    classDef ui fill:#ffe0b2,stroke:#e65100,color:#3e2723;
+    classDef flow fill:#fff3e0,stroke:#e65100,color:#3e2723;
+    classDef crew fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
+    classDef loader fill:#fce4ec,stroke:#880e4f,color:#880e4f;
+    classDef obs fill:#e0f2f1,stroke:#004d40,color:#004d40;
+    classDef external fill:#fafafa,stroke:#616161,color:#212121,stroke-dasharray:4 4;
+
+    UI["Streamlit UI<br/><i>crew_app.py</i>"]:::ui
+    F["CrewAI Flow<br/><i>flow_name + flow_version</i>"]:::flow
+    C["BaseCrew.run<br/><i>crew_name + crew_version</i>"]:::crew
+    PL["PromptLoader"]:::loader
+    YAML[("agents/*.yaml + tasks/*.yaml<br/>(fallback only)")]:::external
+
+    subgraph ObsBox["Observability"]
+        direction TB
+        ECM["EnrichedConnectorManager<br/><i>RunContext • crew_callbacks<br/>_merged_metadata sorted(reverse)</i>"]:::obs
+        LC["LangfuseConnector<br/><i>step/task callbacks: yes</i>"]:::obs
+        DC["DatadogConnector<br/><i>step/task callbacks: no<br/>(native ddtrace patch)</i>"]:::obs
+        ECM --> LC
+        ECM --> DC
+    end
+
+    LF[("Langfuse<br/>traces + prompts")]:::external
+    DD[("Datadog LLMObs<br/>traces")]:::external
+
+    UI -->|inputs| F
+    F -->|Crew.run| C
+    C -->|fetch prompts| PL
+    PL -.->|on miss / 401 / 404| YAML
+    PL <-->|HTTP get_prompt| LF
+    C -->|obs.span| ECM
+    LC <-->|HTTP| LF
+    DC --> DD
 ```
-                    ┌──────────────────────────┐
-                    │  Streamlit UI (crew_app) │
-                    │  Research │ Fitness │ Experiments
-                    └────────────┬─────────────┘
-                                 │ inputs
-                    ┌────────────▼──────────────────────────┐
-                    │  CrewAI Flow  (Flow[State])           │ flows/<name>_flow.py
-                    │    flow_name, flow_version            │
-                    │    @start → make_run_context → Crew   │
-                    └────────────┬──────────────────────────┘
-                                 │
-                    ┌────────────▼──────────────────────────┐
-                    │  BaseCrew.run(inputs, obs)            │ crews/<name>_crew.py
-                    │    crew_version (recipe semver)       │
-                    │    load agents → fetch prompts        │
-                    │    load tasks  → fetch prompts        │
-                    │    obs.span("…", "chain") + callbacks │
-                    │    kickoff_crew → format_result       │
-                    └─┬───────────────────┬─────────────────┘
-                      │                   │
-        ┌─────────────▼──┐   ┌────────────▼────────────────────────┐
-        │  PromptLoader  │   │  EnrichedConnectorManager           │
-        │  Langfuse get  │   │   _ctx: RunContext                  │
-        │   + fallback   │   │   _base: ConnectorManager           │
-        │   merge        │   │   crew_callbacks (step/task spans)  │
-        └────────┬───────┘   └─┬──────────────────────────┬────────┘
-                 │             │ _merged_metadata         │
-        Langfuse │             │  · ctx.as_metadata()     │
-       agent.* + │             │  · span metadata         │
-       task.*    │             │  · sorted(reverse=True)  │
-       prompts   │             ▼                          ▼
-                 │       ┌──────────────┐         ┌────────────┐
-                 │       │  Langfuse    │         │  Datadog   │
-                 │       │  Connector   │         │  Connector │
-                 │       │  (spans,     │         │  (LLMObs,  │
-                 │       │   trace      │         │   native   │
-                 │       │   attrs via  │         │   CrewAI   │
-                 │       │   propagate_ │         │   patch)   │
-                 │       │   attributes)│         │            │
-        ┌────────▼──────────┐ ┌──────────┐         ┌────────────┐
-        │  agents/*.yaml +  │ │ Langfuse │         │ ddtrace    │
-        │  tasks/*.yaml     │ │ traces + │         │ LLMObs     │
-        │  (fallback only)  │ │ prompts  │         │ traces     │
-        └───────────────────┘ └──────────┘         └────────────┘
-```
+
+Reading the diagram:
+
+- **Solid edges** are calls / data flow at runtime.
+- **Dashed edge** to `agents/*.yaml + tasks/*.yaml` is the fallback path used only
+  when Langfuse is unavailable or the prompt is missing.
+- **Connectors** sit inside the Observability subgraph because they are owned
+  by `EnrichedConnectorManager` (via the inner `ConnectorManager`).
 
 ---
 
 ## 3. Project Layout
+
+High-level package dependencies (which package imports which; dashed edges are
+file reads, not Python imports):
+
+```mermaid
+flowchart LR
+    classDef app fill:#ffe0b2,stroke:#e65100,color:#3e2723;
+    classDef domain fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
+    classDef config fill:#e0f2f1,stroke:#004d40,color:#004d40;
+    classDef ops fill:#fce4ec,stroke:#880e4f,color:#880e4f;
+
+    APP["crew_app.py"]:::app
+    FLOWS["flows/"]:::domain
+    CREWS["crews/"]:::domain
+    PROMPTS["core/prompts/"]:::domain
+    OBS["core/observability/"]:::domain
+    AGENTS_DIR["agents/"]:::config
+    TASKS_DIR["tasks/"]:::config
+    CONFIG_DIR["config/environments/"]:::config
+    SCRIPTS_DIR["scripts/"]:::ops
+
+    APP --> FLOWS
+    APP --> OBS
+    FLOWS --> CREWS
+    FLOWS --> OBS
+    CREWS --> PROMPTS
+    CREWS --> OBS
+    CREWS -.reads.-> AGENTS_DIR
+    CREWS -.reads.-> TASKS_DIR
+    OBS -.reads.-> CONFIG_DIR
+    SCRIPTS_DIR --> CREWS
+    SCRIPTS_DIR --> OBS
+```
+
+**Detailed file layout:**
 
 ```
 langfuse-chat/
@@ -531,60 +564,89 @@ re-publish the YAML fallback as a fresh Langfuse version.
 
 ## 6. Runtime Sequence (one Research run)
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Streamlit UI
+    participant Flow as ResearchFlow
+    participant Crew as ResearchCrew
+    participant PL as PromptLoader
+    participant LF as Langfuse
+    participant EC as EnrichedConnectorManager
+    participant LC as LangfuseConnector
+    participant DC as DatadogConnector
+    participant DD as Datadog LLMObs
+
+    User->>UI: enter question, click Run
+    UI->>Flow: _run_flow(ResearchFlow, {question})
+    Flow->>Flow: make_run_context(crew_name, crew_version,<br/>flow_name, flow_version)
+    Flow->>EC: new EnrichedConnectorManager(connectors, ctx)
+    EC->>LC: update_run_context(ctx)
+    EC->>DC: update_run_context(ctx)
+    Flow->>Crew: Crew().run(inputs, obs=EC)
+    Crew->>Crew: assert crew_version
+
+    rect rgb(225, 240, 255)
+        Note over Crew,LF: _load_agents() — one per agents/*.yaml
+        Crew->>PL: get("agent.{key}", fallback)
+        PL->>LF: HTTP get_prompt
+        LF-->>PL: PromptResult (or 404 → use fallback)
+        PL-->>Crew: merged config + version
+        Crew->>Crew: Agent(role, goal, backstory, ...)
+    end
+
+    rect rgb(245, 230, 250)
+        Note over Crew,LF: _load_tasks() — one per tasks/*.yaml
+        Crew->>PL: get("task.{key}", fallback)
+        PL->>LF: HTTP get_prompt
+        LF-->>PL: PromptResult (or 404 → use fallback)
+        PL-->>Crew: merged config + version
+        Crew->>Crew: Task(description.format(...), expected_output,<br/>agent, **wiring_kwargs)
+    end
+
+    Crew->>Crew: _build_prompt_meta()<br/>→ per-prompt entries + agents_signature + tasks_signature
+    Crew->>EC: span(crew_name, "chain", metadata)
+    activate EC
+    EC->>EC: _merged_metadata =<br/>RunContext + span metadata,<br/>sorted(reverse=True)
+    EC->>LC: span(name, type, input, sorted_metadata)
+    EC->>DC: span(name, type, input, sorted_metadata)
+    LC->>LF: start_as_current_observation<br/>+ propagate_attributes
+    DC->>DD: LLMObs.workflow(name)<br/>+ annotate(metadata, tags)
+
+    Crew->>EC: span("crew.kickoff", "span")
+    Crew->>Crew: crew.kickoff(inputs)<br/>[stdout/stderr captured]
+
+    loop each agent step
+        Crew-->>EC: CrewCallbacks.on_agent_step
+        EC->>LC: span("agent.step", "agent")
+    end
+    loop each task done
+        Crew-->>EC: CrewCallbacks.on_task_complete
+        EC->>LC: span("task.complete", "span")
+    end
+
+    Crew->>Crew: _format_result(crew_result, task_outputs)
+    Crew-->>Flow: {result, stdout, stderr, prompt_versions}
+    deactivate EC
+    Flow->>EC: flush()
+    EC->>LC: flush
+    EC->>DC: flush
+    Flow-->>UI: state populated
+    UI->>User: render result + Prompt sources panel
 ```
-crew_app.py
-  └─ _run_flow(ResearchFlow, {"question": "..."})
-       └─ ResearchFlow(connectors_factory=lambda: connectors).kickoff(inputs)
-            └─ ResearchFlow.run_research()           [@start()]
-                 ├─ make_run_context(
-                 │       crew_name="researcher",
-                 │       crew_version=ResearchCrew.crew_version,
-                 │       flow_name=self.flow_name,
-                 │       flow_version=self.flow_version,
-                 │   )                                              → RunContext
-                 ├─ EnrichedConnectorManager(connectors, ctx)
-                 └─ ResearchCrew().run(inputs, obs)
-                      ├─ assert self.crew_version
-                      ├─ _load_agents()
-                      │    └─ for each agents/<name>.yaml:
-                      │         · PromptLoader.get("agent.<prompt_key>", fallback=…)
-                      │         · _pull_llm_text(prompt.config, fallback, _AGENT_LLM_TEXT_FIELDS)
-                      │         · Agent(**agent_text, verbose=…, allow_delegation=…)
-                      ├─ _load_tasks(agents, inputs)
-                      │    └─ for each tasks/<name>.yaml:
-                      │         · PromptLoader.get("task.<prompt_key>", fallback=…)
-                      │         · _pull_llm_text(prompt.config, fallback, _TASK_LLM_TEXT_FIELDS)
-                      │         · description.format(**safe_inputs)
-                      │         · Task(description, expected_output, agent, **wiring_kwargs)
-                      ├─ Crew(agents, tasks, verbose=True, **get_crew_kwargs(obs))
-                      │       # get_crew_kwargs injects step_callback + task_callback
-                      ├─ _build_prompt_meta(agent_prompts, task_prompts)
-                      │       → { agent.<n>.prompt_name/version/source/role/goal/backstory,
-                      │           agents_signature,
-                      │           task.<n>.prompt_name/version/source,
-                      │           tasks_signature }
-                      └─ with obs.span(crew_name, "chain", input_data=inputs,
-                                       metadata={"framework":"crewai","crew":…, **prompt_meta}) as root:
-                              # EnrichedConnectorManager._merged_metadata:
-                              #   merge RunContext.as_metadata() + this metadata
-                              #   then sorted(..., reverse=True)
-                              │
-                              └─ kickoff_crew(crew, obs, input_data=inputs)
-                                   └─ with obs.span("crew.kickoff", "span") as kickoff:
-                                        · contextlib.redirect_stdout/stderr
-                                        · result = crew.kickoff(inputs=…)
-                                          ─ on each agent step → CrewCallbacks.on_agent_step
-                                             └─ obs.span("agent.step", "agent")
-                                          ─ on each task done → CrewCallbacks.on_task_complete
-                                             └─ obs.span("task.complete", "span")
-                                        · kickoff.set_output({result, stdout, stderr})
-                                        · on exception: kickoff.mark_error(); re-raise
-                          # root span sets output, returns
-                      └─ return {"result", "stdout", "stderr", "prompt_versions": prompt_meta}
-            └─ flow.state populated; obs.flush() (Langfuse + Datadog batches)
-       └─ flow result dict returned to crew_app
-  └─ _show_output(...) renders result + Prompt sources panel + stdout/stderr expander
-```
+
+Things worth noting in the sequence:
+
+- The two **shaded blocks** are the only places that talk to Langfuse for
+  prompts. Both fall back to YAML on miss/auth/404 without re-raising.
+- **`_merged_metadata`** is the single point that sorts trace metadata —
+  every downstream connector receives the same dict in the same order.
+- **Step/task callbacks** fire only on connectors with
+  `handles_step_callbacks=True` (Langfuse). Datadog's CrewAI integration
+  is patched natively by `ddtrace`, so we skip our own callbacks for it.
+- **Flush** is called by the Flow after the crew returns; it drains any
+  pending batches in each connector before the function exits.
 
 ---
 
