@@ -3,3 +3,4 @@ __pycache__/
 .agents/*
 !.agents/README.md
 CLAUDE.md
+graphify-out/
