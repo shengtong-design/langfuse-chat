@@ -44,7 +44,16 @@ logging.basicConfig(
 
 
 def _init_datadog_llmobs() -> bool:
-    """Enable Datadog LLMObs before any OTel-using imports claim the TracerProvider."""
+    """Enable Datadog LLMObs (LLM-span pipeline only; APM tracing stays off).
+
+    Deliberately called *after* the top-level package imports so ddtrace's
+    import wrapper doesn't sit between Python's loader and our own modules
+    during cold start — we hit an intermittent
+    ``KeyError: 'core.observability.base'`` on Streamlit Cloud when ddtrace
+    was initialised first. ``integrations_enabled`` defaults to false, so
+    auto-patching of CrewAI/OpenAI imports is not relied upon; LangFuse SDK
+    is imported lazily inside ``_get_langfuse``, which runs well after this.
+    """
     if os.getenv("DD_LLMOBS_ENABLED", "").strip().lower() not in ("1", "true", "yes", "on"):
         return False
     if os.getenv("DD_TRACE_LLMOBS_IN_CODE", "1").strip().lower() in ("0", "false", "no"):
@@ -67,8 +76,6 @@ def _init_datadog_llmobs() -> bool:
         return False
 
 
-_DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
-
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +88,9 @@ from core.observability.datadog_connector import DatadogConnector
 from core.observability.langfuse_connector import LangfuseConnector
 from crews.common import extract_question
 from flows import FitnessFlow, ResearchFlow
+
+# Initialise ddtrace AFTER package imports — see _init_datadog_llmobs docstring.
+_DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
 
 def _require_env(name: str) -> str:
