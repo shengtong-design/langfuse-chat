@@ -462,55 +462,63 @@ and stable; this one is the concrete snapshot.
 
 ### 5.1 Topology
 
+Tasks execute in the order their crew declares them in `_task_yaml_names`.
+CrewAI defaults to `Process.sequential` (which `BaseCrew` uses — no `process=`
+override) so each task auto-receives all prior task outputs as **implicit
+context**. Each task is **performed by** exactly one agent — wired via the
+`agent:` key in the task YAML.
+
 ```mermaid
-flowchart TB
+flowchart LR
     classDef flowNode fill:#fff3e0,stroke:#e65100,color:#3e2723;
     classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
     classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
 
     subgraph RP["Research pipeline"]
-        direction TB
-        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode
-        RC["ResearchCrew<br/><i>crew_name = crewai.researcher</i>"]:::crewNode
+        direction LR
+        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode -->|kickoff| RC["ResearchCrew<br/><i>Process.sequential</i>"]:::crewNode
+        RC -->|task 1| Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
         Rr["researcher<br/><i>agent.researcher</i>"]:::agentNode
-        Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
-        RF --> RC
-        RC --> Rr
-        Rr --> Rt
+        Rt -.performed by.-> Rr
     end
 
     subgraph FP["Fitness pipeline"]
-        direction TB
-        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode
-        FC["FitnessCrew<br/><i>crew_name = crewai.fitness_training</i>"]:::crewNode
+        direction LR
+        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode -->|kickoff| FC["FitnessCrew<br/><i>Process.sequential</i>"]:::crewNode
+        FC -->|task 1| Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
+        Fat -->|task 2<br/>+ ctx of task 1| Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
+        Fwt -->|task 3<br/>+ ctx of tasks 1-2| Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
         Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
         Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
-        Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
-        Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
-        Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
-        FF --> FC
-        FC --> Fa
-        FC --> Fw
-        FC --> Fn
-        Fa --> Fat
-        Fw --> Fwt
-        Fn --> Fnt
+        Fat -.performed by.-> Fa
+        Fwt -.performed by.-> Fw
+        Fnt -.performed by.-> Fn
     end
 ```
 
-Notes on the diagram:
+Reading the diagram:
 
-- Solid edges are *contains / drives*: a Flow contains a Crew; a Crew contains
-  agents; an agent owns its task.
-- The Langfuse prompt name (`agent.<key>`, `task.<key>`) is shown italic under
-  each agent/task — that's the name to look for in Langfuse → Prompts.
-- `FitnessCrew._format_result` joins three markdown sections in the order
-  shown: *## Fitness Profile Analysis*, *## Workout Program*, *## Nutrition Plan*.
-- Concrete `crew_version` / `flow_version` values are intentionally not in the
-  diagram (they drift). Read them off `Crew.crew_version` / `Flow.flow_version`
-  in code, or filter on them in Langfuse trace metadata.
+- **Solid edges along the top of each subgraph** show the *task chain*: Flow
+  kicks off the Crew, which executes tasks left-to-right in declared order.
+  Each `→` arrow between tasks carries the implicit context that
+  `Process.sequential` passes (the prior task's output, accumulated).
+- **Dashed "performed by" edges** point from each task to the agent that
+  executes it. One agent per task (CrewAI requirement in sequential mode).
+- Agents are siblings inside the Crew, not chained — they don't talk to each
+  other directly; they only communicate via task outputs.
+- The Langfuse prompt name (`agent.<key>`, `task.<key>`) is shown italic
+  under each agent/task — that's the name to look for in Langfuse → Prompts.
+- `FitnessCrew._format_result` joins three markdown sections in the
+  declared-task order: *## Fitness Profile Analysis*, *## Workout Program*,
+  *## Nutrition Plan*.
+- Concrete `crew_version` / `flow_version` values are intentionally not in
+  the diagram (they drift). Read them off `Crew.crew_version` /
+  `Flow.flow_version` in code, or filter on them in Langfuse trace metadata.
+- We do not use `context=[other_task]` anywhere today; if you ever need a
+  non-linear task dependency, `context=` overrides the implicit chain (see
+  `.agents/skills/crewai/design-task/SKILL.md`).
 
 ### 5.2 Flows
 

@@ -761,55 +761,62 @@ to insertion-order display, flip the <code>reverse</code> flag (one line, in
 flow / crew / agent / task — every other section in this doc is structural
 and stable; this one is the concrete snapshot.</p>
 <h3 id="51-topology"><a class="toclink" href="#51-topology">5.1 Topology</a></h3>
+<p>Tasks execute in the order their crew declares them in <code>_task_yaml_names</code>.
+CrewAI defaults to <code>Process.sequential</code> (which <code>BaseCrew</code> uses — no <code>process=</code>
+override) so each task auto-receives all prior task outputs as <strong>implicit
+context</strong>. Each task is <strong>performed by</strong> exactly one agent — wired via the
+<code>agent:</code> key in the task YAML.</p>
 <div class="mermaid">
-flowchart TB
+flowchart LR
     classDef flowNode fill:#fff3e0,stroke:#e65100,color:#3e2723;
     classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
     classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
 
     subgraph RP["Research pipeline"]
-        direction TB
-        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode
-        RC["ResearchCrew<br/><i>crew_name = crewai.researcher</i>"]:::crewNode
+        direction LR
+        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode -->|kickoff| RC["ResearchCrew<br/><i>Process.sequential</i>"]:::crewNode
+        RC -->|task 1| Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
         Rr["researcher<br/><i>agent.researcher</i>"]:::agentNode
-        Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
-        RF --> RC
-        RC --> Rr
-        Rr --> Rt
+        Rt -.performed by.-> Rr
     end
 
     subgraph FP["Fitness pipeline"]
-        direction TB
-        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode
-        FC["FitnessCrew<br/><i>crew_name = crewai.fitness_training</i>"]:::crewNode
+        direction LR
+        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode -->|kickoff| FC["FitnessCrew<br/><i>Process.sequential</i>"]:::crewNode
+        FC -->|task 1| Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
+        Fat -->|task 2<br/>+ ctx of task 1| Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
+        Fwt -->|task 3<br/>+ ctx of tasks 1-2| Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
         Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
         Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
-        Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
-        Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
-        Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
-        FF --> FC
-        FC --> Fa
-        FC --> Fw
-        FC --> Fn
-        Fa --> Fat
-        Fw --> Fwt
-        Fn --> Fnt
+        Fat -.performed by.-> Fa
+        Fwt -.performed by.-> Fw
+        Fnt -.performed by.-> Fn
     end
 </div>
 
-<p>Notes on the diagram:</p>
+<p>Reading the diagram:</p>
 <ul>
-<li>Solid edges are <em>contains / drives</em>: a Flow contains a Crew; a Crew contains
-  agents; an agent owns its task.</li>
-<li>The Langfuse prompt name (<code>agent.&lt;key&gt;</code>, <code>task.&lt;key&gt;</code>) is shown italic under
-  each agent/task — that's the name to look for in Langfuse → Prompts.</li>
-<li><code>FitnessCrew._format_result</code> joins three markdown sections in the order
-  shown: <em>## Fitness Profile Analysis</em>, <em>## Workout Program</em>, <em>## Nutrition Plan</em>.</li>
-<li>Concrete <code>crew_version</code> / <code>flow_version</code> values are intentionally not in the
-  diagram (they drift). Read them off <code>Crew.crew_version</code> / <code>Flow.flow_version</code>
-  in code, or filter on them in Langfuse trace metadata.</li>
+<li><strong>Solid edges along the top of each subgraph</strong> show the <em>task chain</em>: Flow
+  kicks off the Crew, which executes tasks left-to-right in declared order.
+  Each <code>→</code> arrow between tasks carries the implicit context that
+  <code>Process.sequential</code> passes (the prior task's output, accumulated).</li>
+<li><strong>Dashed "performed by" edges</strong> point from each task to the agent that
+  executes it. One agent per task (CrewAI requirement in sequential mode).</li>
+<li>Agents are siblings inside the Crew, not chained — they don't talk to each
+  other directly; they only communicate via task outputs.</li>
+<li>The Langfuse prompt name (<code>agent.&lt;key&gt;</code>, <code>task.&lt;key&gt;</code>) is shown italic
+  under each agent/task — that's the name to look for in Langfuse → Prompts.</li>
+<li><code>FitnessCrew._format_result</code> joins three markdown sections in the
+  declared-task order: <em>## Fitness Profile Analysis</em>, <em>## Workout Program</em>,
+  <em>## Nutrition Plan</em>.</li>
+<li>Concrete <code>crew_version</code> / <code>flow_version</code> values are intentionally not in
+  the diagram (they drift). Read them off <code>Crew.crew_version</code> /
+  <code>Flow.flow_version</code> in code, or filter on them in Langfuse trace metadata.</li>
+<li>We do not use <code>context=[other_task]</code> anywhere today; if you ever need a
+  non-linear task dependency, <code>context=</code> overrides the implicit chain (see
+  <code>.agents/skills/crewai/design-task/SKILL.md</code>).</li>
 </ul>
 <h3 id="52-flows"><a class="toclink" href="#52-flows">5.2 Flows</a></h3>
 <table>
