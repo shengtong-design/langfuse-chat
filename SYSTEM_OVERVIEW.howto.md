@@ -97,6 +97,13 @@ trace back to one of them.
   key matches the YAML reference and that the inner closure carries no
   return annotation (PEP 563 trap; see `fitness_analysis_guardrail.py`).
 
+### Skills inventory (for §5.9)
+
+- `skills/<name>/SKILL.md` — one skill per directory. Verify the
+  frontmatter `name` field matches the directory name (CrewAI's
+  `load_skill_metadata` enforces this) and that the `description`
+  field is present (1–1024 chars).
+
 ---
 
 ## 3. The 10-section model
@@ -107,7 +114,7 @@ trace back to one of them.
 | 2 | Architecture at a Glance | Mermaid `flowchart TB`. |
 | 3 | Project Layout | Mermaid `flowchart LR` (imports) + ASCII file tree. |
 | 4 | Core Concepts | Ten subsections, see below. |
-| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + six tables (Crews, Agents, Tasks, Langfuse prompts, Tools, Guardrails). |
+| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + seven tables (Crews, Agents, Tasks, Langfuse prompts, Tools, Guardrails, Skills). |
 | 6 | Runtime Sequence | Mermaid `sequenceDiagram` (one worked example). |
 | 7 | Configuration | Tables (env vars + env files). |
 | 8 | Extension Points | Numbered procedures. |
@@ -121,12 +128,13 @@ trace back to one of them.
 3. Agent — YAML scaffolding + Langfuse-managed text.
 4. Task — YAML wiring + Langfuse-managed text.
 5. Guardrail — structural validators on task output.
-6. PromptLoader — Langfuse with deterministic fallback.
-7. Observability — connector layer.
-8. Span types, truncation, and CrewAI callbacks.
-9. RunContext — the run's identity card.
-10. Four-layer versioning model.
-11. Trace metadata key order.
+6. Skill — filesystem-packaged prompt guidance.
+7. PromptLoader — Langfuse with deterministic fallback.
+8. Observability — connector layer.
+9. Span types, truncation, and CrewAI callbacks.
+10. RunContext — the run's identity card.
+11. Four-layer versioning model.
+12. Trace metadata key order.
 
 ### §9 subsections (in order)
 
@@ -169,6 +177,7 @@ trace back to one of them.
 | Task | `#f3e5f5` | `#4a148c` |
 | Tool | `#fff8e1` | `#f57f17` |
 | Guardrail | `#ffebee` | `#c62828` |
+| Skill | `#ede7f6` | `#4527a0` |
 | PromptLoader | `#fce4ec` | `#880e4f` |
 | Observability | `#e0f2f1` | `#004d40` |
 | External / data store | `#fafafa`, dashed `#616161` |
@@ -240,7 +249,7 @@ grep -n -E "1\.0\.0|≥[0-9]|[0-9]+\.[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
 
 # 2. Section numbers contiguous.
 grep -n -E "^##\s+[0-9]+\.|^###\s+[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
-# Expect: 1, 2, ..., 10 with subsections 4.1-4.11, 5.1-5.8, 9.1-9.6.
+# Expect: 1, 2, ..., 10 with subsections 4.1-4.12, 5.1-5.9, 9.1-9.6.
 
 # 3. Cross-references resolve.
 grep -n -E "see §?[0-9]+(\.[0-9]+)?" SYSTEM_OVERVIEW.md
@@ -273,6 +282,7 @@ renders (no red "Syntax error in text" boxes).
 | Top-level directory | §3 imports diagram + file tree. |
 | Flow / crew / agent / task / **tool** | §5 inventory (diagram + relevant table). When adding a tool, update §5.1 diagram (Tool node + dashed "uses" edge), §5.3 "Tools wired" column, §5.4 "Tools" column, and §5.7 row. |
 | **Guardrail** | §5 inventory (diagram + table). Add a Guardrail node + dashed "guarded by" edge to §5.1, fill the §5.5 "Guardrail" column for the owning task, and add a §5.8 row. Bump the owning `Crew.crew_version`. |
+| **Skill** | §5 inventory (diagram + table). Add a Skill node + dashed "guided by" edge to §5.1, fill the §5.4 "Skills" column for the owning agent, and add a §5.9 row. Bump the owning `Crew.crew_version`. |
 | Core concept | §4 subsection (renumber subsequent if inserted before §4.10). |
 | Step in `BaseCrew.run` | §6 sequence diagram. |
 | Env var | §7 table. |

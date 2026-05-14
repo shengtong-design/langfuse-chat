@@ -236,6 +236,7 @@ flowchart LR
     CREWS["crews/"]:::domain
     TOOLS["tools/"]:::domain
     GUARDRAILS["guardrails/"]:::domain
+    SKILLS["skills/"]:::domain
     PROMPTS["core/prompts/"]:::domain
     OBS["core/observability/"]:::domain
     AGENTS_DIR["agents/"]:::config
@@ -251,6 +252,7 @@ flowchart LR
     CREWS --> OBS
     CREWS --> TOOLS
     CREWS --> GUARDRAILS
+    CREWS -.reads.-> SKILLS
     CREWS -.reads.-> AGENTS_DIR
     CREWS -.reads.-> TASKS_DIR
     OBS -.reads.-> CONFIG_DIR
@@ -298,6 +300,10 @@ flowchart LR
 │   ├── __init__.py                   GUARDRAIL_BUILDERS: key → builder(inputs) → callable
 │   └── fitness_analysis_guardrail.py build_fitness_analysis_guardrail (structural check)
 │
+├── skills/                         ← CrewAI filesystem skills (SKILL.md packages)
+│   └── progressive-overload/         workout-program-design guidance for workout_designer
+│       └── SKILL.md                  YAML frontmatter (name, description) + markdown body
+│
 ├── core/
 │   ├── prompts/
 │   │   └── loader.py            ← PromptLoader; Langfuse get_prompt + fallback merge
@@ -342,7 +348,7 @@ flowchart LR
 <li>Two class attributes for trace identity:</li>
 <li><code>flow_name: ClassVar[str]</code> — short identifier (e.g. <code>"researcher"</code>).</li>
 <li><code>flow_version: ClassVar[str]</code> — semver. Bumped manually when the <em>flow</em>
-    recipe changes (see 4.10).</li>
+    recipe changes (see 4.11).</li>
 </ul>
 <p>The <code>@start</code> body is responsible for: building a <code>RunContext</code> via
 <code>make_run_context(...)</code>, wrapping the connector manager in
@@ -492,7 +498,51 @@ guardrails. A rejection shows up <em>indirectly</em> in traces as multiple LLM
 generations under one task (the retries). To confirm a guardrail ran
 on the green path, add a <code>logger.info(...)</code> inside the <code>check</code> closure
 — mirrors the tool-invocation log pattern in <code>tools/</code>.</p>
-<h3 id="46-promptloader-langfuse-with-deterministic-fallback"><a class="toclink" href="#46-promptloader-langfuse-with-deterministic-fallback">4.6 PromptLoader — Langfuse with deterministic fallback</a></h3>
+<h3 id="46-skill-filesystem-packaged-prompt-guidance"><a class="toclink" href="#46-skill-filesystem-packaged-prompt-guidance">4.6 Skill — filesystem-packaged prompt guidance</a></h3>
+<p>A <em>skill</em> is a CrewAI-native filesystem package
+(<code>skills/&lt;name&gt;/SKILL.md</code>) whose body is injected into the agent's task
+prompt at run time. Skills supply <strong>instructions and reference
+material</strong> — they are <em>not</em> callable. The agent reads the body as
+context; it never "calls" a skill the way it calls a tool.</p>
+<p><strong>File layout</strong> (per CrewAI's spec):</p>
+<pre><code>skills/
+└── &lt;skill-name&gt;/
+    └── SKILL.md        ← YAML frontmatter (name, description) + markdown body
+</code></pre>
+<p>The directory name must equal the <code>name</code> field in the frontmatter
+(CrewAI's <code>load_skill_metadata</code> validates this on load). <code>name</code> is
+1–64 lowercase alphanumeric chars with hyphens; <code>description</code> is a 1–1024
+char summary of when the skill applies. The markdown body is whatever
+the agent needs as context — a periodization cheat-sheet, a coding
+style guide, a domain glossary.</p>
+<p><strong>Wiring stays in YAML, never Langfuse:</strong></p>
+<pre><code>agents/&lt;agent&gt;.yaml             crews/base.py:_load_agents              skills/&lt;skill&gt;/SKILL.md
+  skills:                  →    for name in spec[&quot;skills&quot;]:    →        load_skill_metadata(...)
+    - &lt;skill-dir-name&gt;             activate_skill(load_...)              activate_skill(...)
+                                   Agent(skills=[...])                    (level: METADATA → INSTRUCTIONS)
+</code></pre>
+<p><strong>Why pre-load + activate instead of passing <code>Path</code>.</strong> CrewAI's
+<code>Agent(skills=[Path(...)])</code> calls <code>discover_skills(path)</code> which expects
+a <strong>parent</strong> directory containing skill subfolders (it iterates
+<code>path.iterdir()</code> looking for <code>child/SKILL.md</code>). Passing a single skill
+directory silently returns zero results. To get per-agent named
+selection (mirroring how <code>tools:</code> works), <code>_load_agents</code> calls
+<code>load_skill_metadata + activate_skill</code> on each named skill and passes
+the resolved <code>Skill</code> objects directly — <code>set_skills()</code> then accepts
+them as-is at INSTRUCTIONS level. The why-comment lives in
+<code>crews/base.py:_load_agents</code>.</p>
+<p><strong>Skill vs Tool.</strong> A tool gives the agent a callable function (the LLM
+emits a tool call, CrewAI runs it, returns a result). A skill injects
+text into the prompt — it influences <em>how</em> the agent reasons, not
+<em>what</em> it can do. Most non-trivial agents want both.</p>
+<p><strong>Observability.</strong> Skills do not get their own span. They show up
+indirectly as longer prompt-input characters in the LLM generation
+under each agent step (the workout-designer's first prompt grows by
+~3 KB once a skill is attached). The skill name is not stamped on the
+trace today — if you need to filter on it, expose it via
+<code>as_metadata()</code> on <code>RunContext</code> or add per-agent metadata in
+<code>_build_prompt_meta</code>.</p>
+<h3 id="47-promptloader-langfuse-with-deterministic-fallback"><a class="toclink" href="#47-promptloader-langfuse-with-deterministic-fallback">4.7 PromptLoader — Langfuse with deterministic fallback</a></h3>
 <p><code>core/prompts/loader.py</code>. Single method:</p>
 <pre><code class="language-python">loader = PromptLoader()
 prompt = loader.get(name=&quot;agent.researcher&quot;, fallback={...},
@@ -532,7 +582,7 @@ prompt = loader.get(name=&quot;agent.researcher&quot;, fallback={...},
 </table>
 <p>The Langfuse SDK caches prompts in-process for <code>cache_ttl</code> seconds (default 300).
 Production updates land within that TTL on already-running processes.</p>
-<h3 id="47-observability-connector-layer"><a class="toclink" href="#47-observability-connector-layer">4.7 Observability — connector layer</a></h3>
+<h3 id="48-observability-connector-layer"><a class="toclink" href="#48-observability-connector-layer">4.8 Observability — connector layer</a></h3>
 <p><strong><code>BaseConnector</code></strong> (abstract):</p>
 <pre><code class="language-python">class BaseConnector(ABC):
     handles_step_callbacks: bool = True   # set False on backends with native CrewAI patching
@@ -554,7 +604,7 @@ connectors with <code>handles_step_callbacks=True</code>.</p>
 <ul>
 <li><code>RunContext</code> propagation: every <code>span()</code> call merges <code>ctx.as_metadata()</code> with
   the caller's metadata, then sorts the merged dict with <code>reverse=True</code> (see
-  4.11) before passing to the inner manager.</li>
+  4.12) before passing to the inner manager.</li>
 <li><code>crew_callbacks</code> (a <code>CrewCallbacks</code> instance) wired against a
   callbacks-filtered child manager, so only Langfuse-style connectors observe
   step/task sub-spans.</li>
@@ -587,7 +637,7 @@ connectors with <code>handles_step_callbacks=True</code>.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="48-span-types-truncation-and-crewai-callbacks"><a class="toclink" href="#48-span-types-truncation-and-crewai-callbacks">4.8 Span types, truncation, and CrewAI callbacks</a></h3>
+<h3 id="49-span-types-truncation-and-crewai-callbacks"><a class="toclink" href="#49-span-types-truncation-and-crewai-callbacks">4.9 Span types, truncation, and CrewAI callbacks</a></h3>
 <p><strong>Span type vocabulary</strong> (passed as the second arg of <code>obs.span()</code>):</p>
 <table>
 <thead>
@@ -671,7 +721,7 @@ connectors with <code>handles_step_callbacks=True</code>.</p>
 </ul>
 <p>Both run inside their own <code>try/except</code> so a callback error never breaks the
 crew run.</p>
-<h3 id="49-runcontext-the-runs-identity-card"><a class="toclink" href="#49-runcontext-the-runs-identity-card">4.9 RunContext — the run's identity card</a></h3>
+<h3 id="410-runcontext-the-runs-identity-card"><a class="toclink" href="#410-runcontext-the-runs-identity-card">4.10 RunContext — the run's identity card</a></h3>
 <p>Built once per crew run by <code>make_run_context(...)</code> and propagated to every span
 by <code>EnrichedConnectorManager</code>. <code>core/observability/context/run_context.py</code>:</p>
 <table>
@@ -754,7 +804,7 @@ by <code>EnrichedConnectorManager</code>. <code>core/observability/context/run_c
 <li><code>as_dd_tags()</code> — flat dict for Datadog tag annotation (with the SHA
   truncated to 8 chars).</li>
 </ul>
-<h3 id="410-four-layer-versioning-model"><a class="toclink" href="#410-four-layer-versioning-model">4.10 Four-layer versioning model</a></h3>
+<h3 id="411-four-layer-versioning-model"><a class="toclink" href="#411-four-layer-versioning-model">4.11 Four-layer versioning model</a></h3>
 <p>The trace carries four independent identity axes. Each is filterable in
 Langfuse without affecting the others.</p>
 <table>
@@ -782,7 +832,7 @@ Langfuse without affecting the others.</p>
 <tr>
 <td><strong>Crew recipe</strong></td>
 <td><code>crew_version</code> (<code>ClassVar</code> on the Crew class)</td>
-<td>Manual PR bump when <code>_agent_yaml_names</code>, <code>_task_yaml_names</code>, <code>_format_result</code>, the wired tool set, guardrail wiring, or a prompt key changes</td>
+<td>Manual PR bump when <code>_agent_yaml_names</code>, <code>_task_yaml_names</code>, <code>_format_result</code>, the wired tool set, skills wiring, guardrail wiring, or a prompt key changes</td>
 <td>Crew authors</td>
 </tr>
 <tr>
@@ -805,7 +855,7 @@ Langfuse without affecting the others.</p>
 </ul>
 <p>The bump rules are codified as comments next to each <code>flow_version</code> and
 <code>crew_version</code> declaration in code.</p>
-<h3 id="411-trace-metadata-key-order"><a class="toclink" href="#411-trace-metadata-key-order">4.11 Trace metadata key order</a></h3>
+<h3 id="412-trace-metadata-key-order"><a class="toclink" href="#412-trace-metadata-key-order">4.12 Trace metadata key order</a></h3>
 <p>Langfuse renders dict keys in reverse-insertion order. To present a stable
 forward-alphabetical view in the UI, <code>EnrichedConnectorManager._merged_metadata</code>
 sorts the final dict with <code>reverse=True</code> before handing it to the inner
@@ -834,6 +884,7 @@ flowchart LR
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
     classDef toolNode fill:#fff8e1,stroke:#f57f17,color:#3e2723;
     classDef guardrailNode fill:#ffebee,stroke:#c62828,color:#3e2723;
+    classDef skillNode fill:#ede7f6,stroke:#4527a0,color:#4527a0;
 
     subgraph RP["Research pipeline"]
         direction LR
@@ -854,11 +905,13 @@ flowchart LR
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
         HRR["health_report_reader<br/><i>HealthReportReaderTool</i>"]:::toolNode
         Fag["fitness_analysis_guardrail<br/><i>structural check</i>"]:::guardrailNode
+        Pos["progressive-overload<br/><i>SKILL.md</i>"]:::skillNode
         Fat -.performed by.-> Fa
         Fwt -.performed by.-> Fw
         Fnt -.performed by.-> Fn
         Fa -.uses.-> HRR
         Fat -.guarded by.-> Fag
+        Fw -.guided by.-> Pos
     end
 </div>
 
@@ -882,6 +935,12 @@ flowchart LR
   from Langfuse. On rejection the task retries with the failure reason
   appended to the agent's context — the diagram shows <em>attachment</em>, not
   the retry loop (see 4.5).</li>
+<li><strong>Dashed "guided by" edges</strong> point from an agent to each <code>Skill</code>
+  (filesystem <code>skills/&lt;name&gt;/SKILL.md</code> package) named in its agent
+  YAML <code>skills:</code> list. Skills inject markdown guidance into the agent's
+  task prompt at run time — they are not callable like tools. Loaded
+  via <code>crewai.skills.loader.load_skill_metadata + activate_skill</code>,
+  never via Langfuse (see 4.6).</li>
 <li>Agents are siblings inside the Crew, not chained — they don't talk to each
   other directly; they only communicate via task outputs.</li>
 <li>The Langfuse prompt name (<code>agent.&lt;key&gt;</code>, <code>task.&lt;key&gt;</code>) is shown italic
@@ -963,6 +1022,7 @@ flowchart LR
 <th><code>prompt_key</code> (→ Langfuse <code>agent.&lt;key&gt;</code>)</th>
 <th>Fallback role</th>
 <th>Tools (YAML <code>tools:</code> keys)</th>
+<th>Skills (YAML <code>skills:</code> keys)</th>
 <th>Used by</th>
 </tr>
 </thead>
@@ -972,6 +1032,7 @@ flowchart LR
 <td><code>researcher</code></td>
 <td>Researcher</td>
 <td>—</td>
+<td>—</td>
 <td><code>ResearchCrew</code></td>
 </tr>
 <tr>
@@ -979,6 +1040,7 @@ flowchart LR
 <td><code>fitness_analyst</code></td>
 <td>Fitness Analyst</td>
 <td><code>health_report_reader</code></td>
+<td>—</td>
 <td><code>FitnessCrew</code></td>
 </tr>
 <tr>
@@ -986,12 +1048,14 @@ flowchart LR
 <td><code>workout_designer</code></td>
 <td>Workout Program Designer</td>
 <td>—</td>
+<td><code>progressive-overload</code></td>
 <td><code>FitnessCrew</code></td>
 </tr>
 <tr>
 <td><code>agents/nutrition_advisor.yaml</code></td>
 <td><code>nutrition_advisor</code></td>
 <td>Nutrition Advisor</td>
+<td>—</td>
 <td>—</td>
 <td><code>FitnessCrew</code></td>
 </tr>
@@ -1115,6 +1179,30 @@ retry contract.</p>
 <p>Bump the owning <code>Crew.crew_version</code> whenever a guardrail is added,
 removed, or its key changes on a task — same rule as adding / removing
 a tool or agent. The rule lives next to the ClassVar in <code>crews/base.py</code>.</p>
+<h3 id="59-skills"><a class="toclink" href="#59-skills">5.9 Skills</a></h3>
+<p>CrewAI filesystem skills — <code>skills/&lt;name&gt;/SKILL.md</code> packages whose
+markdown body is appended to the agent's task prompt at run time.
+Selection is per-agent via the YAML <code>skills:</code> list (a list of skill
+directory names). See §4.6 for the concept and the loader rationale.</p>
+<table>
+<thead>
+<tr>
+<th>Skill (dir name)</th>
+<th>Frontmatter <code>description</code></th>
+<th>Wired to (agent)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>progressive-overload</code></td>
+<td>Progressive overload and periodization principles for designing safe, effective workout programs</td>
+<td><code>workout_designer</code></td>
+</tr>
+</tbody>
+</table>
+<p>Bump the owning <code>Crew.crew_version</code> whenever a skill is added,
+removed, or renamed on any of its agents — same rule as adding / removing
+a tool or guardrail. The rule lives next to the ClassVar in <code>crews/base.py</code>.</p>
 <hr>
 <h2 id="6-runtime-sequence-one-research-run"><a class="toclink" href="#6-runtime-sequence-one-research-run">6. Runtime Sequence (one Research run)</a></h2>
 <div class="mermaid">
@@ -1460,6 +1548,31 @@ re-route a validator.</p>
    passes the returned closure to</code>Task(guardrail=...)<code>.
 4. **Bump</code>crew_version`** of any crew whose guardrail wiring changed —
    same rule as adding/removing a tool or agent.</p>
+<h3 id="add-a-skill"><a class="toclink" href="#add-a-skill">Add a skill</a></h3>
+<p>Skills are wiring, not LLM-text — they live entirely in the filesystem
+under <code>skills/&lt;name&gt;/SKILL.md</code> and never flow through Langfuse, so a
+prompt edit can never change what an agent reads as guidance.</p>
+<ol>
+<li><strong>Create</strong> the skill directory and <code>SKILL.md</code>:
+   <code>skills/&lt;skill-name&gt;/
+   └── SKILL.md</code>
+   <code>SKILL.md</code> requires YAML frontmatter with <code>name</code> (must equal
+   <code>&lt;skill-name&gt;</code> exactly; 1–64 lowercase alphanumeric chars with
+   hyphens) and <code>description</code> (1–1024 chars describing when the skill
+   applies). The markdown body is the guidance the agent will read.</li>
+<li><strong>Attach</strong> to one or more agents by adding the directory name to the
+   agent's YAML <code>skills:</code> list:
+   ```yaml
+   # agents/<agent>.yaml
+   skills:<ul>
+<li><skill-name>
+   <code>``</code>BaseCrew._load_agents<code>pre-loads each named skill via</code>load_skill_metadata + activate_skill<code>and passes the resolved</code>Skill<code>objects directly to</code>Agent(skills=...)<code>— bypassing CrewAI's</code>discover_skills(Path)` (which expects a parent dir) so per-agent
+   named selection works (see §4.6 for the why).</li>
+</ul>
+</li>
+<li><strong>Bump <code>crew_version</code></strong> of any crew whose skills wiring changed —
+   same rule as adding/removing a tool or guardrail.</li>
+</ol>
 <hr>
 <h2 id="9-user-instructions"><a class="toclink" href="#9-user-instructions">9. User Instructions</a></h2>
 <h3 id="91-first-time-setup"><a class="toclink" href="#91-first-time-setup">9.1 First-time setup</a></h3>
@@ -1674,6 +1787,8 @@ hot-reloads the <em>script body</em> but not already-imported modules.</p>
 <li><code>flows/&lt;name&gt;_flow.py</code> — <code>flow_version</code> bump rules, codified inline above each declaration.</li>
 <li><code>core/observability/context/enriched.py</code> — the comment in <code>_merged_metadata</code> explaining the Langfuse reverse-display coupling.</li>
 <li><code>guardrails/fitness_analysis_guardrail.py</code> — the in-file note on the CrewAI × PEP 563 trap (why the inner <code>check</code> closure must not carry a return annotation).</li>
+<li><code>crews/base.py:_load_agents</code> — the in-file note on why skills are pre-loaded via <code>load_skill_metadata + activate_skill</code> instead of passing raw <code>Path</code> objects (<code>discover_skills</code> parent-dir gotcha).</li>
+<li><code>skills/&lt;name&gt;/SKILL.md</code> — each skill's frontmatter + body; CrewAI's loader validates <code>name</code> equals the directory name.</li>
 </ul>
 </main>
 <script type="module">
