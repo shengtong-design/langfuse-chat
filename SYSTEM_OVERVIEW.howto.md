@@ -80,13 +80,22 @@ trace back to one of them.
 ### YAML inventory (for §5 tables)
 
 - `agents/*.yaml` — verify `prompt_key`, `fallback.role`, optional `tools:` list.
-- `tasks/*.yaml` — verify `task_name`, `agent`, `prompt_key`, `fallback`.
+- `tasks/*.yaml` — verify `task_name`, `agent`, `prompt_key`, `fallback`,
+  optional `guardrail:` key.
 
 ### Tools inventory (for §5.7)
 
 - `tools/__init__.py` — `TOOL_BUILDERS` registry (key → builder(inputs) → BaseTool).
 - `tools/*_tool.py` — one `BaseTool` subclass per file; verify `name`,
   `description`, declared instance fields used by the builder.
+
+### Guardrails inventory (for §5.8)
+
+- `guardrails/__init__.py` — `GUARDRAIL_BUILDERS` registry (key →
+  builder(inputs) → `(TaskOutput) → (bool, Any)` closure).
+- `guardrails/*_guardrail.py` — one builder per file; verify the registry
+  key matches the YAML reference and that the inner closure carries no
+  return annotation (PEP 563 trap; see `fitness_analysis_guardrail.py`).
 
 ---
 
@@ -98,7 +107,7 @@ trace back to one of them.
 | 2 | Architecture at a Glance | Mermaid `flowchart TB`. |
 | 3 | Project Layout | Mermaid `flowchart LR` (imports) + ASCII file tree. |
 | 4 | Core Concepts | Ten subsections, see below. |
-| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + five tables (Crews, Agents, Tasks, Langfuse prompts, Tools). |
+| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + six tables (Crews, Agents, Tasks, Langfuse prompts, Tools, Guardrails). |
 | 6 | Runtime Sequence | Mermaid `sequenceDiagram` (one worked example). |
 | 7 | Configuration | Tables (env vars + env files). |
 | 8 | Extension Points | Numbered procedures. |
@@ -111,12 +120,13 @@ trace back to one of them.
 2. Crew — inner LLM-driven recipe.
 3. Agent — YAML scaffolding + Langfuse-managed text.
 4. Task — YAML wiring + Langfuse-managed text.
-5. PromptLoader — Langfuse with deterministic fallback.
-6. Observability — connector layer.
-7. Span types, truncation, and CrewAI callbacks.
-8. RunContext — the run's identity card.
-9. Four-layer versioning model.
-10. Trace metadata key order.
+5. Guardrail — structural validators on task output.
+6. PromptLoader — Langfuse with deterministic fallback.
+7. Observability — connector layer.
+8. Span types, truncation, and CrewAI callbacks.
+9. RunContext — the run's identity card.
+10. Four-layer versioning model.
+11. Trace metadata key order.
 
 ### §9 subsections (in order)
 
@@ -158,6 +168,7 @@ trace back to one of them.
 | Agent | `#e3f2fd` | `#0d47a1` |
 | Task | `#f3e5f5` | `#4a148c` |
 | Tool | `#fff8e1` | `#f57f17` |
+| Guardrail | `#ffebee` | `#c62828` |
 | PromptLoader | `#fce4ec` | `#880e4f` |
 | Observability | `#e0f2f1` | `#004d40` |
 | External / data store | `#fafafa`, dashed `#616161` |
@@ -229,7 +240,7 @@ grep -n -E "1\.0\.0|≥[0-9]|[0-9]+\.[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
 
 # 2. Section numbers contiguous.
 grep -n -E "^##\s+[0-9]+\.|^###\s+[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
-# Expect: 1, 2, ..., 10 with subsections 4.1-4.10, 5.1-5.7, 9.1-9.6.
+# Expect: 1, 2, ..., 10 with subsections 4.1-4.11, 5.1-5.8, 9.1-9.6.
 
 # 3. Cross-references resolve.
 grep -n -E "see §?[0-9]+(\.[0-9]+)?" SYSTEM_OVERVIEW.md
@@ -245,7 +256,7 @@ grep -c 'class="mermaid"' SYSTEM_OVERVIEW.html
 py -3.12 -c "import crews.base, crews.research_crew, crews.fitness_crew, \
             flows.research_flow, flows.fitness_flow, \
             core.observability, core.observability.context, core.prompts, \
-            tools"
+            tools, guardrails"
 ```
 
 Then open `SYSTEM_OVERVIEW.html` in a browser and confirm every Mermaid block
@@ -261,6 +272,7 @@ renders (no red "Syntax error in text" boxes).
 | Runtime layer (e.g. a tools registry) | §2 diagram + a new §4 subsection. |
 | Top-level directory | §3 imports diagram + file tree. |
 | Flow / crew / agent / task / **tool** | §5 inventory (diagram + relevant table). When adding a tool, update §5.1 diagram (Tool node + dashed "uses" edge), §5.3 "Tools wired" column, §5.4 "Tools" column, and §5.7 row. |
+| **Guardrail** | §5 inventory (diagram + table). Add a Guardrail node + dashed "guarded by" edge to §5.1, fill the §5.5 "Guardrail" column for the owning task, and add a §5.8 row. Bump the owning `Crew.crew_version`. |
 | Core concept | §4 subsection (renumber subsequent if inserted before §4.10). |
 | Step in `BaseCrew.run` | §6 sequence diagram. |
 | Env var | §7 table. |

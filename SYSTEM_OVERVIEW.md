@@ -94,6 +94,7 @@ flowchart LR
     FLOWS["flows/"]:::domain
     CREWS["crews/"]:::domain
     TOOLS["tools/"]:::domain
+    GUARDRAILS["guardrails/"]:::domain
     PROMPTS["core/prompts/"]:::domain
     OBS["core/observability/"]:::domain
     AGENTS_DIR["agents/"]:::config
@@ -108,6 +109,7 @@ flowchart LR
     CREWS --> PROMPTS
     CREWS --> OBS
     CREWS --> TOOLS
+    CREWS --> GUARDRAILS
     CREWS -.reads.-> AGENTS_DIR
     CREWS -.reads.-> TASKS_DIR
     OBS -.reads.-> CONFIG_DIR
@@ -152,6 +154,10 @@ langfuse-chat/
 ├── tools/                          ← CrewAI BaseTool implementations + registry
 │   ├── __init__.py                   TOOL_BUILDERS: key → builder(inputs) → BaseTool
 │   └── health_report_reader_tool.py  HealthReportReaderTool (.txt/.md/.pdf)
+│
+├── guardrails/                     ← Task guardrail builders + registry
+│   ├── __init__.py                   GUARDRAIL_BUILDERS: key → builder(inputs) → callable
+│   └── fitness_analysis_guardrail.py build_fitness_analysis_guardrail (structural check)
 │
 ├── core/
 │   ├── prompts/
@@ -201,7 +207,7 @@ A Flow is a `crewai.flow.flow.Flow[State]` subclass with:
 - Two class attributes for trace identity:
   - `flow_name: ClassVar[str]` — short identifier (e.g. `"researcher"`).
   - `flow_version: ClassVar[str]` — semver. Bumped manually when the *flow*
-    recipe changes (see 4.9).
+    recipe changes (see 4.10).
 
 The `@start` body is responsible for: building a `RunContext` via
 `make_run_context(...)`, wrapping the connector manager in
@@ -290,7 +296,62 @@ with format syntax.
 `task_name`, `agent`, `prompt_key`, `fallback`. Everything else is
 `**wiring_kwargs` to `Task(**)`.
 
-### 4.5 PromptLoader — Langfuse with deterministic fallback
+### 4.5 Guardrail — structural validators on task output
+
+A *guardrail* is a per-task validator that runs after the agent finishes a
+task but before CrewAI accepts its output. It returns `(bool, Any)`:
+
+- `(True, validated_payload)` — accept; `validated_payload` becomes the
+  task output that flows downstream as implicit context to later tasks.
+- `(False, reason)` — reject; CrewAI appends `reason` to the agent's
+  context and retries the same task (subject to the task's
+  `max_retries`, CrewAI default; not overridden here).
+
+This project uses **pure-Python function guardrails** (no LLM call) for
+structural / format checks — section presence, minimum length, regex
+markers. LLM-based guardrails are a CrewAI capability we don't use yet.
+Function guardrails are deterministic, cheap, and the failure reason
+they hand back to the agent is human-readable, so retries converge fast.
+
+**Wiring stays in code, never Langfuse:**
+
+```
+tasks/<task>.yaml             guardrails/__init__.py            guardrails/<name>_guardrail.py
+  guardrail: <key>     →      GUARDRAIL_BUILDERS[<key>]   →     build_<name>_guardrail(inputs)
+                                                                  └─ returns (TaskOutput) → (bool, Any) closure
+```
+
+- The task YAML carries a **string key** under `guardrail:`.
+- `crews/base.py:_load_tasks` resolves that key against
+  `GUARDRAIL_BUILDERS`, calls the builder with the run's `inputs` dict,
+  and passes the returned closure to `Task(guardrail=...)`.
+- The **builder pattern** lets the validator close over per-run state
+  (uploaded file paths, user-supplied goals, ...) without that state
+  ever leaking through Langfuse-editable prompt text.
+
+**Naming convention.** Registry keys are suffixed `_guardrail` so the
+string is self-identifying in tracebacks, grep results, and YAML
+(e.g. `fitness_analysis_guardrail`, not bare `fitness_analysis`). The
+YAML field name `guardrail:` plus the suffix make the wiring
+unambiguous in both directions.
+
+**CrewAI × PEP 563 trap.** With `from __future__ import annotations` at
+the top of the guardrail module, CrewAI's `Task.guardrail` validator
+calls `inspect.signature(closure).return_annotation` and runs
+`get_origin` on it; on a *string* annotation `get_origin` returns
+`None` and the validator rejects with "If return type is annotated, it
+must be Tuple[bool, Any]". Fix: drop the inner `check` closure's
+return annotation. The outer builder's annotation still documents the
+contract for human readers. The why-comment lives in
+`guardrails/fitness_analysis_guardrail.py`.
+
+**Observability.** CrewAI does not emit a dedicated span for function
+guardrails. A rejection shows up *indirectly* in traces as multiple LLM
+generations under one task (the retries). To confirm a guardrail ran
+on the green path, add a `logger.info(...)` inside the `check` closure
+— mirrors the tool-invocation log pattern in `tools/`.
+
+### 4.6 PromptLoader — Langfuse with deterministic fallback
 
 `core/prompts/loader.py`. Single method:
 
@@ -313,7 +374,7 @@ prompt = loader.get(name="agent.researcher", fallback={...},
 The Langfuse SDK caches prompts in-process for `cache_ttl` seconds (default 300).
 Production updates land within that TTL on already-running processes.
 
-### 4.6 Observability — connector layer
+### 4.7 Observability — connector layer
 
 **`BaseConnector`** (abstract):
 
@@ -341,7 +402,7 @@ connectors with `handles_step_callbacks=True`.
 
 - `RunContext` propagation: every `span()` call merges `ctx.as_metadata()` with
   the caller's metadata, then sorts the merged dict with `reverse=True` (see
-  4.9) before passing to the inner manager.
+  4.11) before passing to the inner manager.
 - `crew_callbacks` (a `CrewCallbacks` instance) wired against a
   callbacks-filtered child manager, so only Langfuse-style connectors observe
   step/task sub-spans.
@@ -356,7 +417,7 @@ connectors with `handles_step_callbacks=True`.
 | `LangfuseConnector` | `True` | Span metadata kwarg (via `EnrichedConnectorManager`) + `propagate_attributes(session_id, user_id, tags)` inside each span | Uses `client.start_as_current_observation(name=…, as_type=…)`. |
 | `DatadogConnector` | `False` | The connector itself merges `RunContext.as_metadata()` into each span's `LLMObs.annotate(metadata=…)` and adds `as_dd_tags()` | `ddtrace` already patches CrewAI natively; step/task callbacks are skipped to avoid double-instrumentation. |
 
-### 4.7 Span types, truncation, and CrewAI callbacks
+### 4.8 Span types, truncation, and CrewAI callbacks
 
 **Span type vocabulary** (passed as the second arg of `obs.span()`):
 
@@ -391,7 +452,7 @@ connectors with `handles_step_callbacks=True`.
 Both run inside their own `try/except` so a callback error never breaks the
 crew run.
 
-### 4.8 RunContext — the run's identity card
+### 4.9 RunContext — the run's identity card
 
 Built once per crew run by `make_run_context(...)` and propagated to every span
 by `EnrichedConnectorManager`. `core/observability/context/run_context.py`:
@@ -420,7 +481,7 @@ Three projections used by connectors:
 - `as_dd_tags()` — flat dict for Datadog tag annotation (with the SHA
   truncated to 8 chars).
 
-### 4.9 Four-layer versioning model
+### 4.10 Four-layer versioning model
 
 The trace carries four independent identity axes. Each is filterable in
 Langfuse without affecting the others.
@@ -429,7 +490,7 @@ Langfuse without affecting the others.
 |---|---|---|---|
 | **Deployment** | `app_version` (`VERSION` file) + `deployment_sha` (env config) | Every deploy | Build/release |
 | **Flow recipe** | `flow_version` (`ClassVar` on the Flow class) | Manual PR bump when `@start`/`@listen`/`@router` topology, state-model fields, orchestrated crew(s), or post-processing semantics change | Flow authors |
-| **Crew recipe** | `crew_version` (`ClassVar` on the Crew class) | Manual PR bump when `_agent_yaml_names`, `_task_yaml_names`, `_format_result`, the wired tool set, or a prompt key changes | Crew authors |
+| **Crew recipe** | `crew_version` (`ClassVar` on the Crew class) | Manual PR bump when `_agent_yaml_names`, `_task_yaml_names`, `_format_result`, the wired tool set, guardrail wiring, or a prompt key changes | Crew authors |
 | **Per-run prompt resolution** | `agents_signature`, `tasks_signature` (root-span metadata) + per-prompt `prompt_version` entries | Auto — whenever Langfuse serves a different version for any agent/task prompt | Runtime + Langfuse |
 
 The non-overlap matters:
@@ -445,7 +506,7 @@ The non-overlap matters:
 The bump rules are codified as comments next to each `flow_version` and
 `crew_version` declaration in code.
 
-### 4.10 Trace metadata key order
+### 4.11 Trace metadata key order
 
 Langfuse renders dict keys in reverse-insertion order. To present a stable
 forward-alphabetical view in the UI, `EnrichedConnectorManager._merged_metadata`
@@ -481,6 +542,7 @@ flowchart LR
     classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
     classDef toolNode fill:#fff8e1,stroke:#f57f17,color:#3e2723;
+    classDef guardrailNode fill:#ffebee,stroke:#c62828,color:#3e2723;
 
     subgraph RP["Research pipeline"]
         direction LR
@@ -500,10 +562,12 @@ flowchart LR
         Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
         HRR["health_report_reader<br/><i>HealthReportReaderTool</i>"]:::toolNode
+        Fag["fitness_analysis_guardrail<br/><i>structural check</i>"]:::guardrailNode
         Fat -.performed by.-> Fa
         Fwt -.performed by.-> Fw
         Fnt -.performed by.-> Fn
         Fa -.uses.-> HRR
+        Fat -.guarded by.-> Fag
     end
 ```
 
@@ -520,6 +584,13 @@ Reading the diagram:
   per run by `tools.TOOL_BUILDERS[<key>](inputs)`; they never appear in
   Langfuse-managed prompt text. The agent decides *when* to call a tool;
   the diagram only shows *which* tool is available to whom.
+- **Dashed "guarded by" edges** point from a task to its guardrail (when
+  the task YAML has `guardrail: <key>`). Like tools, guardrails are
+  wired in code/YAML and instantiated per run by
+  `guardrails.GUARDRAIL_BUILDERS[<key>](inputs)`; they never resolve
+  from Langfuse. On rejection the task retries with the failure reason
+  appended to the agent's context — the diagram shows *attachment*, not
+  the retry loop (see 4.5).
 - Agents are siblings inside the Crew, not chained — they don't talk to each
   other directly; they only communicate via task outputs.
 - The Langfuse prompt name (`agent.<key>`, `task.<key>`) is shown italic
@@ -559,12 +630,12 @@ Reading the diagram:
 
 ### 5.5 Tasks
 
-| YAML | `task_name` | `prompt_key` (→ Langfuse `task.<key>`) | Owning agent | Used by |
-|---|---|---|---|---|
-| `tasks/research_task.yaml` | `research` | `research_task` | `researcher` | `ResearchCrew` |
-| `tasks/fitness_analysis_task.yaml` | `analysis` | `fitness_analysis_task` | `fitness_analyst` | `FitnessCrew` |
-| `tasks/fitness_workout_task.yaml` | `workout` | `fitness_workout_task` | `workout_designer` | `FitnessCrew` |
-| `tasks/fitness_nutrition_task.yaml` | `nutrition` | `fitness_nutrition_task` | `nutrition_advisor` | `FitnessCrew` |
+| YAML | `task_name` | `prompt_key` (→ Langfuse `task.<key>`) | Owning agent | Guardrail | Used by |
+|---|---|---|---|---|---|
+| `tasks/research_task.yaml` | `research` | `research_task` | `researcher` | — | `ResearchCrew` |
+| `tasks/fitness_analysis_task.yaml` | `analysis` | `fitness_analysis_task` | `fitness_analyst` | `fitness_analysis_guardrail` | `FitnessCrew` |
+| `tasks/fitness_workout_task.yaml` | `workout` | `fitness_workout_task` | `workout_designer` | — | `FitnessCrew` |
+| `tasks/fitness_nutrition_task.yaml` | `nutrition` | `fitness_nutrition_task` | `nutrition_advisor` | — | `FitnessCrew` |
 
 ### 5.6 Langfuse prompts (after `scripts/seed_prompts.py`)
 
@@ -599,6 +670,22 @@ user-scoped credentials) flows through cleanly.
 Bump the owning `Crew.crew_version` whenever a crew's wired tool set
 changes (add / remove / swap a key in any of its agents' YAMLs) — the
 rule lives next to the ClassVar in `crews/base.py`.
+
+### 5.8 Guardrails
+
+Function guardrails are CrewAI `Task.guardrail` callables wired by
+string key — same pattern as tools, applied to a single task instead of
+an agent. They never resolve from Langfuse, so an LLM-text edit can
+never disable or re-route a validator. See §4.5 for the concept and the
+retry contract.
+
+| Registry key | File | Builder | Validates | Wired to (task) |
+|---|---|---|---|---|
+| `fitness_analysis_guardrail` | `guardrails/fitness_analysis_guardrail.py` | `build_fitness_analysis_guardrail` | Section presence (current state / goal / focus / challenge or recommendation) and minimum length | `fitness_analysis_task` |
+
+Bump the owning `Crew.crew_version` whenever a guardrail is added,
+removed, or its key changes on a task — same rule as adding / removing
+a tool or agent. The rule lives next to the ClassVar in `crews/base.py`.
 
 ---
 
@@ -687,6 +774,13 @@ Things worth noting in the sequence:
   is patched natively by `ddtrace`, so we skip our own callbacks for it.
 - **Flush** is called by the Flow after the crew returns; it drains any
   pending batches in each connector before the function exits.
+- **Guardrails** are not depicted because the Research example has no
+  guardrailed task. When a task does have a `guardrail:` key
+  (e.g. `fitness_analysis_task` in the Fitness pipeline), CrewAI runs
+  the function guardrail between the agent's final step and the
+  `task.complete` callback; on rejection the task retries with the
+  failure reason appended to the agent's context (no dedicated span —
+  retries surface as multiple LLM generations under one task). See §4.5.
 
 ---
 
@@ -835,6 +929,36 @@ flow through Langfuse.
 5. **Bump `crew_version`** of any crew whose tool set changed — same rule as
    adding/removing an agent (see `crews/base.py`).
 
+### Add a guardrail
+
+Guardrails are wiring, not LLM-text — they live entirely in code/YAML and
+never flow through Langfuse, so a prompt edit can never disable or
+re-route a validator.
+
+1. **Implement** the builder in `guardrails/<name>_guardrail.py`. The
+   builder takes the run's `inputs` dict and returns the closure
+   `(TaskOutput) → (bool, Any)`. **Do not annotate the inner closure's
+   return type** if the file has `from __future__ import annotations` —
+   CrewAI's `Task.guardrail` validator rejects string annotations (see
+   §4.5 for the why).
+2. **Register** it in `guardrails/__init__.py` under a unique key
+   suffixed `_guardrail`:
+   ```python
+   from .my_check_guardrail import build_my_check_guardrail
+
+   GUARDRAIL_BUILDERS["my_check_guardrail"] = build_my_check_guardrail
+   ```
+3. **Attach** to a task by adding the key to its YAML:
+   ```yaml
+   # tasks/<task>.yaml
+   guardrail: my_check_guardrail
+   ```
+   `BaseCrew._load_tasks` resolves the key against
+   `GUARDRAIL_BUILDERS`, calls the builder with the run's `inputs`, and
+   passes the returned closure to `Task(guardrail=...)`.
+4. **Bump `crew_version`** of any crew whose guardrail wiring changed —
+   same rule as adding/removing a tool or agent.
+
 ---
 
 ## 9. User Instructions
@@ -975,3 +1099,4 @@ Useful combinations:
 - `crews/base.py` — `BaseCrew.crew_version` comment, `_AGENT_LLM_TEXT_FIELDS` / `_TASK_LLM_TEXT_FIELDS` / `_TASK_RESERVED_KEYS` constants, and the `_namespaced` invariant.
 - `flows/<name>_flow.py` — `flow_version` bump rules, codified inline above each declaration.
 - `core/observability/context/enriched.py` — the comment in `_merged_metadata` explaining the Langfuse reverse-display coupling.
+- `guardrails/fitness_analysis_guardrail.py` — the in-file note on the CrewAI × PEP 563 trap (why the inner `check` closure must not carry a return annotation).
