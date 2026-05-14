@@ -25,9 +25,6 @@ class ResearchFlow(Flow[ResearchState]):
         result = flow.kickoff(inputs={"question": "What is AI?"})
     """
 
-    # Flow recipe semver. Bump when the flow body changes: topology
-    # (@start/@listen/@router edits), state-model fields, which crew(s) it
-    # orchestrates, or post-processing. Independent of ResearchCrew.crew_version.
     # Flow recipe version. Semver string, bumped manually via PR. Distinct from
     # crew_version (the inner recipe), agents_signature/tasks_signature (per-run
     # prompt resolution), and app_version (the deployment).

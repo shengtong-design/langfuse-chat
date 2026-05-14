@@ -101,53 +101,53 @@ blockquote {
 <body>
 <main>
 <h1 id="system-overview-langfuse-chat"><a class="toclink" href="#system-overview-langfuse-chat">System Overview — <code>langfuse-chat</code></a></h1>
-<p>A multi-crew CrewAI runner with first-class observability (Langfuse + Datadog
-LLM Observability), runtime-managed prompts, and an experiment harness. Exposed
-through a Streamlit UI; orchestrated through CrewAI Flows.</p>
+<p>A multi-crew <a href="https://docs.crewai.com">CrewAI</a> application with first-class
+observability (<a href="https://langfuse.com">Langfuse</a> + <a href="https://docs.datadoghq.com/llm_observability/">Datadog LLM
+Observability</a>), runtime-managed
+prompts, and a Langfuse-driven experiment harness. The UI is Streamlit;
+orchestration is CrewAI Flows; tracing fans out through a thin connector layer
+so backends are plug-in.</p>
 <ul>
 <li><strong>Runtime:</strong> Python 3.12 (<code>runtime.txt</code>)</li>
-<li><strong>Version:</strong> see <code>VERSION</code> (currently <code>1.0.0</code>)</li>
-<li><strong>Top-level entry point:</strong> <code>crew_app.py</code> (Streamlit)</li>
-<li><strong>Frameworks:</strong> CrewAI 1.14.4, Streamlit ≥1.30, Langfuse ≥4.0, Pydantic ≥2.11</li>
-<li><strong>Optional integrations:</strong> Datadog LLM Observability (<code>ddtrace</code> ≥2.0)</li>
+<li><strong>App version:</strong> see <code>VERSION</code> (<code>1.0.0</code>)</li>
+<li><strong>Entry point:</strong> <code>crew_app.py</code> (<code>py -3.12 -m streamlit run crew_app.py</code>)</li>
+<li><strong>Frameworks:</strong> CrewAI <code>1.14.4</code>, Streamlit <code>≥1.30</code>, Langfuse <code>≥4.0</code>,
+  Pydantic <code>≥2.11</code>, OpenAI SDK <code>≥2.30</code></li>
+<li><strong>Optional integrations:</strong> Datadog LLM Observability (<code>ddtrace ≥2.0</code>)</li>
 </ul>
 <hr>
-<h2 id="1-goals-design-tenets"><a class="toclink" href="#1-goals-design-tenets">1. Goals &amp; Design Tenets</a></h2>
+<h2 id="1-design-tenets"><a class="toclink" href="#1-design-tenets">1. Design Tenets</a></h2>
 <table>
 <thead>
 <tr>
 <th>Tenet</th>
-<th>Realization</th>
+<th>Realization in code</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Separate fast-moving prompt edits from code</strong></td>
-<td>Both agent <strong>and task</strong> prompts live in Langfuse (production label); the repo carries only YAML fallback config for offline / disaster scenarios.</td>
+<td><strong>Prompts evolve faster than code, so they live outside it.</strong></td>
+<td>Every agent's <code>role</code>/<code>goal</code>/<code>backstory</code> and every task's <code>description</code>/<code>expected_output</code> resolves from Langfuse at runtime; the repo only carries a YAML <em>fallback</em> used when Langfuse is unreachable or the prompt is missing.</td>
 </tr>
 <tr>
-<td><strong>Observability is a first-class connector layer, not an afterthought</strong></td>
-<td>All crew/agent/task spans flow through <code>ConnectorManager</code>; backends (Langfuse, Datadog) plug in via <code>BaseConnector</code>.</td>
+<td><strong>Langfuse can edit LLM-text only — never wiring.</strong></td>
+<td><code>BaseCrew._pull_llm_text()</code> enforces a per-concept allowlist (<code>_AGENT_LLM_TEXT_FIELDS</code>, <code>_TASK_LLM_TEXT_FIELDS</code>). Any other key Langfuse returns is dropped. Model, tools, agent assignment, retries — none of these can drift via a Langfuse edit.</td>
 </tr>
 <tr>
-<td><strong>Run identity is structured and propagated</strong></td>
-<td>A <code>RunContext</code> (session, run, user, env, app version, crew version, model version, deployment SHA) attaches to every span and tag automatically.</td>
+<td><strong>Prompts of different concepts cannot collide.</strong></td>
+<td>The Langfuse prompt name is <code>&lt;namespace&gt;.&lt;bare-key&gt;</code>. Namespaces are owned by the loader (<code>agent.</code>, <code>task.</code>); the bare key from YAML cannot contain a dot. <code>_namespaced()</code> rejects pre-prefixed keys to prevent double-namespacing.</td>
 </tr>
 <tr>
-<td><strong>Crew identity ≠ prompt identity</strong></td>
-<td><code>crew_version</code> (recipe semver), <code>agents_signature</code>, and <code>tasks_signature</code> (per-run resolved prompt versions) are independent axes, all emitted on the trace.</td>
+<td><strong>Identity is layered, not collapsed into one version.</strong></td>
+<td>Four independent axes propagate on every trace: <code>app_version</code>/<code>deployment_sha</code> (deployment), <code>flow_version</code> (orchestration recipe), <code>crew_version</code> (crew recipe), <code>agents_signature</code>/<code>tasks_signature</code> (per-run prompt resolution). Each filterable on its own.</td>
 </tr>
 <tr>
-<td><strong>Langfuse names cannot collide across concepts</strong></td>
-<td>Prompts are stored under namespaced names: <code>agent.&lt;name&gt;</code>, <code>task.&lt;name&gt;</code>. Prefix is enforced by the per-concept loader; YAML keys stay bare.</td>
+<td><strong>Observability is a connector layer, not a backend.</strong></td>
+<td><code>BaseConnector</code> is the contract; <code>ConnectorManager</code> fans every operation out; <code>EnrichedConnectorManager</code> enriches with <code>RunContext</code>. New backends plug in by subclassing <code>BaseConnector</code>.</td>
 </tr>
 <tr>
-<td><strong>Wiring stays in code/YAML; only LLM-text is editable in Langfuse</strong></td>
-<td>Loaders pull a fixed allow-list of fields from Langfuse (<code>role</code>/<code>goal</code>/<code>backstory</code> for agents, <code>description</code>/<code>expected_output</code> for tasks). Anything else Langfuse returns is dropped — a Langfuse edit cannot change wiring (model, tools, agent assignment, retries, ...).</td>
-</tr>
-<tr>
-<td><strong>Extensibility by convention, not framework lock-in</strong></td>
-<td>New crews = add YAMLs + subclass <code>BaseCrew</code>. New connectors = subclass <code>BaseConnector</code>. New CrewAI Task fields = YAML edit only (generic pass-through).</td>
+<td><strong>Extensibility by convention, not framework lock-in.</strong></td>
+<td>New crew = add YAMLs + a 4-line subclass. New observability backend = a single <code>BaseConnector</code> subclass. New CrewAI <code>Task(**kwargs)</code> field = YAML key only (passthrough).</td>
 </tr>
 </tbody>
 </table>
@@ -158,103 +158,133 @@ through a Streamlit UI; orchestrated through CrewAI Flows.</p>
                     │  Research │ Fitness │ Experiments
                     └────────────┬─────────────┘
                                  │ inputs
-                    ┌────────────▼─────────────┐
-                    │       CrewAI Flow         │   flows/&lt;name&gt;_flow.py
-                    │  (state + kickoff)        │
-                    └────────────┬─────────────┘
+                    ┌────────────▼──────────────────────────┐
+                    │  CrewAI Flow  (Flow[State])           │ flows/&lt;name&gt;_flow.py
+                    │    flow_name, flow_version            │
+                    │    @start → make_run_context → Crew   │
+                    └────────────┬──────────────────────────┘
                                  │
-                    ┌────────────▼─────────────┐
-                    │       Crew (BaseCrew)     │   crews/&lt;name&gt;_crew.py
-                    │   load agents → tasks →   │
-                    │   kickoff → format result │
-                    └─┬───────────┬─────────────┘
-                      │           │
-        ┌─────────────▼──┐   ┌────▼───────────────────┐
-        │  PromptLoader  │   │ EnrichedConnectorMgr   │
-        │  (Langfuse +   │   │  · ConnectorManager     │
-        │   YAML fallback│   │  · RunContext metadata  │
-        └────────┬───────┘   │  · CrewAI step/task cbs │
-                 │           └────┬──────────────┬─────┘
-        Langfuse │                │              │
-       agent.*+  │           Langfuse        Datadog
-       task.*    │           Connector       Connector
-       prompts   │
-        ┌────────▼──────────┐ ┌───────────┐  ┌────────────┐
-        │  agents/*.yaml +  │ │ Langfuse  │  │ ddtrace    │
-        │  tasks/*.yaml     │ │ traces +  │  │ LLMObs     │
-        │  (fallback only)  │ │ prompts   │  │ traces     │
-        └───────────────────┘ └───────────┘  └────────────┘
+                    ┌────────────▼──────────────────────────┐
+                    │  BaseCrew.run(inputs, obs)            │ crews/&lt;name&gt;_crew.py
+                    │    crew_version (recipe semver)       │
+                    │    load agents → fetch prompts        │
+                    │    load tasks  → fetch prompts        │
+                    │    obs.span(&quot;…&quot;, &quot;chain&quot;) + callbacks │
+                    │    kickoff_crew → format_result       │
+                    └─┬───────────────────┬─────────────────┘
+                      │                   │
+        ┌─────────────▼──┐   ┌────────────▼────────────────────────┐
+        │  PromptLoader  │   │  EnrichedConnectorManager           │
+        │  Langfuse get  │   │   _ctx: RunContext                  │
+        │   + fallback   │   │   _base: ConnectorManager           │
+        │   merge        │   │   crew_callbacks (step/task spans)  │
+        └────────┬───────┘   └─┬──────────────────────────┬────────┘
+                 │             │ _merged_metadata         │
+        Langfuse │             │  · ctx.as_metadata()     │
+       agent.* + │             │  · span metadata         │
+       task.*    │             │  · sorted(reverse=True)  │
+       prompts   │             ▼                          ▼
+                 │       ┌──────────────┐         ┌────────────┐
+                 │       │  Langfuse    │         │  Datadog   │
+                 │       │  Connector   │         │  Connector │
+                 │       │  (spans,     │         │  (LLMObs,  │
+                 │       │   trace      │         │   native   │
+                 │       │   attrs via  │         │   CrewAI   │
+                 │       │   propagate_ │         │   patch)   │
+                 │       │   attributes)│         │            │
+        ┌────────▼──────────┐ ┌──────────┐         ┌────────────┐
+        │  agents/*.yaml +  │ │ Langfuse │         │ ddtrace    │
+        │  tasks/*.yaml     │ │ traces + │         │ LLMObs     │
+        │  (fallback only)  │ │ prompts  │         │ traces     │
+        └───────────────────┘ └──────────┘         └────────────┘
 </code></pre>
 <hr>
 <h2 id="3-project-layout"><a class="toclink" href="#3-project-layout">3. Project Layout</a></h2>
 <pre><code>langfuse-chat/
-├── crew_app.py                  ← Streamlit entry point (UI, tabs, flow wiring)
-├── VERSION                      ← App semver, exposed as RunContext.app_version
-├── runtime.txt                  ← Python 3.12 (deployment hint)
+├── crew_app.py                  ← Streamlit entry point (tabs, flow wiring,
+│                                  Datadog LLMObs init guarded at import time)
+├── VERSION                      ← App semver — exposed as RunContext.app_version
+├── runtime.txt                  ← `python-3.12` (deployment hint)
 ├── requirements.txt
 ├── SYSTEM_OVERVIEW.md           ← (this file)
+├── SYSTEM_OVERVIEW.html         ← rendered via scripts/md_to_html.py
 │
-├── flows/                       ← CrewAI Flow entry points (per crew)
-│   ├── research_flow.py
-│   └── fitness_flow.py
+├── flows/                       ← Per-Flow entry points (Flow[State] subclasses)
+│   ├── research_flow.py           single @start; ResearchState(question, result, …)
+│   └── fitness_flow.py            single @start; FitnessState(goals, level, …)
 │
-├── crews/                       ← Crew implementations (template-method pattern)
-│   ├── base.py                  ← BaseCrew: load YAML, fetch prompts, build spans
-│   ├── common.py                ← kickoff_crew helper (stdout capture, error mapping)
+├── crews/                       ← Template-method BaseCrew + concrete crews
+│   ├── base.py                    BaseCrew, LLM-text allowlists, _namespaced helper
+│   ├── common.py                  kickoff_crew (stdout/stderr capture, error mark)
 │   ├── research_crew.py
 │   └── fitness_crew.py
 │
-├── agents/                      ← Agent YAML config (metadata + YAML fallback only)
-│   ├── researcher.yaml
+├── agents/                      ← Agent YAML — prompt_key + verbose/delegation flags
+│   ├── researcher.yaml             + fallback block (role, goal, backstory)
 │   ├── fitness_analyst.yaml
 │   ├── workout_designer.yaml
 │   └── nutrition_advisor.yaml
 │
-├── tasks/                       ← Task YAML (wiring + fallback block; description
-│   ├── research_task.yaml         and expected_output resolve from Langfuse at runtime)
-│   ├── fitness_analysis_task.yaml
+├── tasks/                       ← Task YAML — task_name, agent ref, prompt_key
+│   ├── research_task.yaml          + fallback block (description, expected_output)
+│   ├── fitness_analysis_task.yaml  + optional **wiring keys forwarded to Task()
 │   ├── fitness_workout_task.yaml
 │   └── fitness_nutrition_task.yaml
 │
 ├── core/
 │   ├── prompts/
-│   │   └── loader.py            ← PromptLoader (Langfuse get_prompt + fallback merge)
+│   │   └── loader.py            ← PromptLoader; Langfuse get_prompt + fallback merge
 │   │
 │   └── observability/
-│       ├── base.py              ← BaseConnector, ObsManager Protocol, SpanHandle ABC
-│       ├── __init__.py          ← ConnectorManager (fan-out)
-│       ├── span_limits.py
+│       ├── base.py              ← BaseConnector ABC, SpanHandle ABC, ObsManager Proto
+│       ├── __init__.py          ← ConnectorManager (fan-out + for_callbacks)
+│       ├── span_limits.py       ← Truncation constants for span field sizes
 │       ├── langfuse_connector.py
 │       ├── datadog_connector.py
 │       └── context/
-│           ├── run_context.py   ← RunContext dataclass (session/run/user/env/...)
+│           ├── run_context.py   ← RunContext dataclass; as_metadata/as_tags/as_dd_tags
 │           ├── session.py       ← make_run_context() factory
-│           ├── enriched.py      ← EnrichedConnectorManager (auto-metadata)
-│           └── callbacks.py     ← get_crew_kwargs() — CrewAI step/task callbacks
+│           ├── enriched.py      ← EnrichedConnectorManager (RunContext propagation)
+│           └── callbacks.py     ← CrewCallbacks (agent.step + task.complete spans)
 │
 ├── config/
-│   └── environments/
+│   └── environments/            ← Per-env non-secrets (deployment_sha, model defaults)
 │       ├── dev.yaml
 │       ├── staging.yaml
-│       └── prod.yaml            ← deployment_sha, model_defaults
+│       └── prod.yaml
 │
-├── scripts/                     ← One-off tooling (not part of the app runtime)
-│   ├── bootstrap.py
-│   ├── seed_prompts.py
-│   └── run_experiment.py
+├── scripts/                     ← One-off CLIs (NOT part of the app runtime)
+│   ├── bootstrap.py             ← sys.path / .env / logging setup for CLI scripts
+│   ├── seed_prompts.py          ← Walk agents/+tasks/; create v1 production prompts
+│   ├── run_experiment.py        ← Run ResearchFlow against a Langfuse dataset
+│   └── md_to_html.py            ← Render SYSTEM_OVERVIEW.md → self-contained HTML
 │
-├── .agents/                     ← Skill packs for AI coding agents (gitignored, see README)
-├── .claude/                     ← Claude Code-specific config / skill junctions
-├── skills-lock.json             ← Tracked: pins skill packs by source+hash
-└── .env                         ← Local secrets (gitignored, NEVER commit)
+├── .agents/README.md            ← AI-coding-agent skill packs (gitignored content)
+├── skills-lock.json             ← Tracked: pins skill packs by source + hash
+└── .env                         ← Local secrets (gitignored — NEVER commit)
 </code></pre>
 <hr>
 <h2 id="4-core-concepts"><a class="toclink" href="#4-core-concepts">4. Core Concepts</a></h2>
-<h3 id="41-crew-recipe"><a class="toclink" href="#41-crew-recipe">4.1 Crew (recipe)</a></h3>
-<p>A <strong>Crew</strong> is a <em>recipe</em>: a fixed list of agents (with prompt keys), a fixed
-ordered list of tasks, optional result formatting, and a stable <code>crew_version</code>
-string identifying that recipe.</p>
-<p><code>BaseCrew</code> (in <code>crews/base.py</code>) is a template-method base. Subclasses declare:</p>
+<h3 id="41-flow-the-user-facing-recipe"><a class="toclink" href="#41-flow-the-user-facing-recipe">4.1 Flow — the user-facing recipe</a></h3>
+<p>A Flow is a <code>crewai.flow.flow.Flow[State]</code> subclass with:</p>
+<ul>
+<li>A <strong>Pydantic state model</strong> (<code>ResearchState</code>, <code>FitnessState</code>) holding both
+  inputs (<code>question</code>, <code>goals</code>, …) and outputs (<code>result</code>, <code>prompt_versions</code>,
+  <code>stdout</code>, <code>stderr</code>).</li>
+<li>One or more <strong><code>@start()</code></strong> methods. Today both flows have exactly one.</li>
+<li>Two class attributes for trace identity:</li>
+<li><code>flow_name: ClassVar[str]</code> — short identifier (e.g. <code>"researcher"</code>).</li>
+<li><code>flow_version: ClassVar[str]</code> — semver. Bumped manually when the <em>flow</em>
+    recipe changes (see 4.8).</li>
+</ul>
+<p>The <code>@start</code> body is responsible for: building a <code>RunContext</code> via
+<code>make_run_context(...)</code>, wrapping the connector manager in
+<code>EnrichedConnectorManager(connectors, ctx)</code>, calling <code>Crew().run(inputs, obs)</code>,
+flushing observability, and populating the state.</p>
+<p>Flows give the UI a uniform <code>flow.kickoff(inputs={...})</code> interface independent
+of which crew runs inside.</p>
+<h3 id="42-crew-the-inner-llm-driven-recipe"><a class="toclink" href="#42-crew-the-inner-llm-driven-recipe">4.2 Crew — the inner LLM-driven recipe</a></h3>
+<p><code>BaseCrew</code> (in <code>crews/base.py</code>) is a template-method ABC. Subclasses declare:</p>
 <table>
 <thead>
 <tr>
@@ -267,17 +297,17 @@ string identifying that recipe.</p>
 <tr>
 <td><code>crew_version: ClassVar[str]</code></td>
 <td><strong>yes</strong></td>
-<td>Recipe semver — bumped via PR when the recipe changes.</td>
+<td>Recipe semver; asserted non-empty at <code>run()</code> time.</td>
 </tr>
 <tr>
 <td><code>crew_name</code> (property)</td>
 <td>yes</td>
-<td>Short identifier used as the root span name (e.g. <code>crewai.researcher</code>).</td>
+<td>Root-span name (e.g. <code>"crewai.researcher"</code>).</td>
 </tr>
 <tr>
 <td><code>_agent_yaml_names</code> (property)</td>
 <td>yes</td>
-<td>Filenames in <code>agents/</code>, e.g. <code>["researcher.yaml"]</code>.</td>
+<td>Filenames in <code>agents/</code>.</td>
 </tr>
 <tr>
 <td><code>_task_yaml_names</code> (property)</td>
@@ -291,133 +321,70 @@ string identifying that recipe.</p>
 </tr>
 </tbody>
 </table>
-<p><code>BaseCrew.run(inputs, obs)</code> is the single public entry point:</p>
+<p><code>run(inputs, obs)</code> is the one public entry point. The body is:</p>
 <ol>
-<li>Asserts <code>crew_version</code> is set.</li>
-<li>Loads agent specs (YAML), fetches each prompt as <code>agent.&lt;name&gt;</code> from Langfuse via <code>PromptLoader</code> (with YAML fallback). Only the LLM-text fields (<code>role</code>, <code>goal</code>, <code>backstory</code>, optional <code>system_template</code>/<code>prompt_template</code>/<code>response_template</code>) are pulled from the merged config.</li>
-<li>Loads task specs (YAML), fetches each prompt as <code>task.&lt;name&gt;</code> from Langfuse the same way. Only <code>description</code> and <code>expected_output</code> are pulled. All other YAML keys are forwarded verbatim to <code>Task(**kwargs)</code> as wiring.</li>
-<li>Builds a <code>crewai.Crew</code> with step/task callbacks injected by <code>get_crew_kwargs(obs)</code>.</li>
-<li>Computes <code>prompt_meta</code>: per-agent and per-task prompt name/version/source plus deterministic <code>agents_signature</code> and <code>tasks_signature</code> strings.</li>
-<li>Opens the root span (<code>obs.span(...)</code>), kicks off the crew, sets output, returns
+<li><code>assert self.crew_version</code> — fail fast if a subclass forgot.</li>
+<li><code>_load_agents()</code> — read each agent YAML, ask Langfuse for <code>agent.&lt;prompt_key&gt;</code>
+   with the YAML <code>fallback</code> dict, pull only allowlisted LLM-text fields, build
+   <code>Agent(**)</code>.</li>
+<li><code>_load_tasks(agents, inputs)</code> — read each task YAML, ask Langfuse for
+   <code>task.&lt;prompt_key&gt;</code> with the YAML <code>fallback</code>, pull allowlisted LLM-text
+   fields, then build <code>Task(description=…, expected_output=…, agent=…,
+   **wiring_kwargs)</code>. <code>wiring_kwargs</code> is every YAML key <em>not</em> in
+   <code>_TASK_RESERVED_KEYS</code> — meaning new CrewAI <code>Task</code> fields like <code>tools</code>,
+   <code>async_execution</code>, <code>output_pydantic</code> are YAML-only to enable.</li>
+<li><code>Crew(agents, tasks, verbose=True, **get_crew_kwargs(obs))</code> — <code>get_crew_kwargs</code>
+   adds <code>step_callback</code> and <code>task_callback</code> if <code>obs</code> exposes
+   <code>crew_callbacks</code> (i.e. is an <code>EnrichedConnectorManager</code>), else <code>{}</code>.</li>
+<li><code>_build_prompt_meta(agent_prompts, task_prompts)</code> — produce a flat dict with
+   per-prompt entries and two signature strings.</li>
+<li>Open root span <code>obs.span(crew_name, "chain", input=inputs, metadata={
+   "framework": "crewai", "crew": …, **prompt_meta})</code>.</li>
+<li><code>kickoff_crew(crew, obs, input_data=inputs)</code> — runs <code>crew.kickoff(inputs=…)</code>
+   inside an inner <code>"crew.kickoff"</code> span, captures stdout/stderr, marks the
+   span on error.</li>
+<li><code>_format_result(...)</code>, <code>root.set_output(...)</code>, return
    <code>{result, stdout, stderr, prompt_versions}</code>.</li>
 </ol>
-<h4 id="when-to-bump-crew_version"><a class="toclink" href="#when-to-bump-crew_version">When to bump <code>crew_version</code></a></h4>
-<p>Bump for any change to the <em>recipe</em>:</p>
-<ul>
-<li><code>_agent_yaml_names</code> changes (add/remove/swap an agent)</li>
-<li><code>_task_yaml_names</code> changes (reorder, add, or remove a task)</li>
-<li><code>_format_result</code> semantics change</li>
-<li>The wired tool set changes</li>
-<li>An agent's or task's <code>prompt_key</code> is renamed (so a different Langfuse prompt resolves)</li>
-<li>Task-YAML wiring changes (agent assignment, <code>context</code>, <code>tools</code>, <code>output_pydantic</code>, ...)</li>
-</ul>
-<p>Do <strong>not</strong> bump it for a Langfuse-side edit to an existing agent's or task's
-prompt — those are already captured per-run in <code>agents_signature</code> and
-<code>tasks_signature</code>.</p>
-<h3 id="42-agent-configurable-behavior"><a class="toclink" href="#42-agent-configurable-behavior">4.2 Agent (configurable behavior)</a></h3>
-<p>An agent is two things layered:</p>
-<ul>
-<li><strong>YAML in <code>agents/&lt;name&gt;.yaml</code></strong> — wiring: <code>prompt_key</code> (the bare key the
-  Langfuse prompt resolves under, namespaced to <code>agent.&lt;key&gt;</code> at lookup
-  time), <code>verbose</code>, <code>allow_delegation</code>, and a <code>fallback</code> dict with <code>role</code>,
-  <code>goal</code>, <code>backstory</code>. Wiring keys never reach Langfuse.</li>
-<li><strong>Langfuse prompt</strong> named <code>agent.&lt;name&gt;</code> (production label) — runtime
-  source of truth for the LLM-text fields. The loader pulls only an
-  allow-list (<code>role</code>, <code>goal</code>, <code>backstory</code>, optional <code>system_template</code> /
-  <code>prompt_template</code> / <code>response_template</code>). Anything else Langfuse returns
-  is dropped — a Langfuse edit cannot inject a different <code>llm</code>, <code>tools</code>, or
-  <code>allow_delegation</code>.</li>
-</ul>
-<p>This separation lets the team edit prompt text in Langfuse without code
-deploys, while keeping wiring and a deterministic fallback in version
-control.</p>
-<h3 id="43-task"><a class="toclink" href="#43-task">4.3 Task</a></h3>
-<p>A task YAML carries <strong>wiring at the top level</strong> and a <strong><code>fallback:</code> block</strong>
-for the LLM-text fields:</p>
-<pre><code class="language-yaml"># tasks/research_task.yaml
-task_name: research
-agent: researcher
-prompt_key: research_task          # bare key; resolves as &quot;task.research_task&quot; in Langfuse
-
-# Any other CrewAI Task kwarg can be added here; loader forwards it to Task(**kwargs):
-# async_execution: false
-# max_retries: 2
-# tools: [calculator]
-# context: [other_task_name]       # resolver hook only (not implemented yet)
-# output_pydantic: schemas:Result  # resolver hook only (not implemented yet)
-
-fallback:
+<h3 id="43-agent-yaml-scaffolding-langfuse-managed-text"><a class="toclink" href="#43-agent-yaml-scaffolding-langfuse-managed-text">4.3 Agent — YAML scaffolding + Langfuse-managed text</a></h3>
+<p><strong><code>agents/&lt;name&gt;.yaml</code> schema:</strong></p>
+<pre><code class="language-yaml">prompt_key: researcher        # bare key; loader prepends &quot;agent.&quot;
+verbose: true                 # forwarded to Agent(verbose=...)
+allow_delegation: false       # forwarded to Agent(allow_delegation=...)
+fallback:                     # used only when Langfuse is unreachable / missing
+  role: Researcher
+  goal: ...
+  backstory: ...
+</code></pre>
+<p><strong>Langfuse-managed LLM-text fields:</strong> <code>role</code>, <code>goal</code>, <code>backstory</code>,
+<code>system_template</code>, <code>prompt_template</code>, <code>response_template</code>. Everything else the
+Langfuse prompt config might return is silently dropped (<code>_pull_llm_text</code>).</p>
+<h3 id="44-task-yaml-wiring-langfuse-managed-text"><a class="toclink" href="#44-task-yaml-wiring-langfuse-managed-text">4.4 Task — YAML wiring + Langfuse-managed text</a></h3>
+<p><strong><code>tasks/&lt;name&gt;.yaml</code> schema:</strong></p>
+<pre><code class="language-yaml">task_name: research                 # short local name (used in span metadata keys)
+agent: researcher                   # YAML stem of the agent in agents/
+prompt_key: research_task           # bare key; loader prepends &quot;task.&quot;
+fallback:                           # used when Langfuse is unreachable / missing
   description: 'Research the question: &quot;{question}&quot;'
-  expected_output: A clear, concise answer with key points and 1-3 examples if applicable.
+  expected_output: A clear, concise answer ...
+# (any other key here is forwarded to Task(**), e.g. async_execution: true)
 </code></pre>
-<p><strong>Reserved keys</strong> consumed by the loader: <code>task_name</code>, <code>agent</code>, <code>prompt_key</code>,
-<code>fallback</code>. Everything else is generic wiring — forwarded verbatim to
-<code>Task(**kwargs)</code>. Adding a new CrewAI Task feature is usually a zero-code
-YAML edit.</p>
-<p><strong>LLM-text fields</strong> (<code>description</code>, <code>expected_output</code>) resolve as
-<code>task.&lt;prompt_key&gt;</code> from Langfuse with the <code>fallback</code> block as the safety
-net. As with agents, only these fields are pulled from the merged config —
-wiring cannot be overridden via a Langfuse edit.</p>
-<p>Input substitution (<code>{var}</code> interpolation from <code>inputs</code>) is applied to both
-fields, using double-brace escaping so literal <code>{</code> / <code>}</code> in input values is
-safe.</p>
-<h3 id="431-concept-prefix-namespacing"><a class="toclink" href="#431-concept-prefix-namespacing">4.3.1 Concept-prefix namespacing</a></h3>
-<p>Langfuse prompt names follow <code>&lt;concept&gt;.&lt;key&gt;</code>, applied by the per-concept
-loader (<code>_load_agents</code>, <code>_load_tasks</code>) before the <code>PromptLoader.get()</code> call:</p>
-<table>
-<thead>
-<tr>
-<th>Concept</th>
-<th>YAML field</th>
-<th>Bare key</th>
-<th>Langfuse name</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Agent</td>
-<td><code>prompt_key</code></td>
-<td><code>researcher</code></td>
-<td><code>agent.researcher</code></td>
-</tr>
-<tr>
-<td>Task</td>
-<td><code>prompt_key</code></td>
-<td><code>research_task</code></td>
-<td><code>task.research_task</code></td>
-</tr>
-</tbody>
-</table>
-<p>A bare key containing <code>.</code> raises with a clear error pointing at the YAML
-file — prevents accidental double-namespacing. Future concepts (<code>crew.</code>,
-<code>tool.</code>, ...) get the same treatment.</p>
-<h3 id="44-flow"><a class="toclink" href="#44-flow">4.4 Flow</a></h3>
-<p>A Flow is a <code>crewai.flow.flow.Flow[State]</code> subclass that holds typed state
-(<code>pydantic.BaseModel</code>) and exposes one or more <code>@start()</code> methods. Each Flow
-exists to:</p>
-<ol>
-<li>Construct an <code>EnrichedConnectorManager</code> (observability with <code>RunContext</code>).</li>
-<li>Instantiate its Crew, passing the connectors-factory.</li>
-<li>Run the crew, flush spans, and populate the state model.</li>
-</ol>
-<p>Each Flow subclass declares its own identity, propagated to every span:</p>
-<pre><code class="language-python">class ResearchFlow(Flow[ResearchState]):
-    flow_name: ClassVar[str] = &quot;researcher&quot;
-    flow_version: ClassVar[str] = &quot;1.0.0&quot;
+<p><strong>Langfuse-managed LLM-text fields:</strong> <code>description</code>, <code>expected_output</code>. After
+fetch, both are run through Python <code>.format(**safe_inputs)</code> so <code>{var}</code>
+placeholders bind to crew inputs. User-supplied input strings are
+double-brace-escaped first so literal <code>{</code> / <code>}</code> in user text cannot collide
+with format syntax.</p>
+<p><strong>Reserved YAML keys</strong> (consumed by the loader, not passed through):
+<code>task_name</code>, <code>agent</code>, <code>prompt_key</code>, <code>fallback</code>. Everything else is
+<code>**wiring_kwargs</code> to <code>Task(**)</code>.</p>
+<h3 id="45-promptloader-langfuse-with-deterministic-fallback"><a class="toclink" href="#45-promptloader-langfuse-with-deterministic-fallback">4.5 PromptLoader — Langfuse with deterministic fallback</a></h3>
+<p><code>core/prompts/loader.py</code>. Single method:</p>
+<pre><code class="language-python">loader = PromptLoader()
+prompt = loader.get(name=&quot;agent.researcher&quot;, fallback={...},
+                    label=&quot;production&quot;, cache_ttl=300)
+# → PromptResult(config={merged}, version=&quot;&lt;n&gt;&quot; or &quot;fallback&quot;,
+#                name=..., label=...)
 </code></pre>
-<p><code>flow_name</code> / <code>flow_version</code> are independent from <code>crew_name</code> / <code>crew_version</code>:
-the Crew's recipe lives on the crew class, while the Flow's recipe (topology,
-state model, post-processing, which crew(s) it orchestrates) lives here.
-Bump <code>flow_version</code> when the Flow body changes — even if the Crew didn't —
-so traces can be bucketed by either axis.</p>
-<p>Flows are what <code>crew_app.py</code> calls. They give the UI a uniform interface
-(<code>flow.kickoff(inputs={...})</code>) regardless of crew internals.</p>
-<h3 id="45-promptloader"><a class="toclink" href="#45-promptloader">4.5 PromptLoader</a></h3>
-<p><code>core/prompts/loader.py</code> fetches a prompt by name + label from Langfuse and
-merges its <code>config</code> dict over a fallback dict supplied by the caller. The
-loader is <strong>concept-agnostic</strong> — the <code>agent.</code> / <code>task.</code> prefix is applied
-by the caller (<code>crews/base.py</code>), not the loader. Future concepts plug in
-without changing this file.</p>
 <table>
 <thead>
 <tr>
@@ -427,8 +394,8 @@ without changing this file.</p>
 </thead>
 <tbody>
 <tr>
-<td>Langfuse credentials missing</td>
-<td>Use fallback silently (expected in local dev without <code>.env</code>).</td>
+<td><code>LANGFUSE_*</code> env vars absent</td>
+<td>Use fallback silently (expected in local dev).</td>
 </tr>
 <tr>
 <td>Auth failure (401/403)</td>
@@ -444,46 +411,154 @@ without changing this file.</p>
 </tr>
 <tr>
 <td>Success</td>
-<td>Returns <code>PromptResult(config, version=&lt;langfuse&gt;, name, label)</code>.</td>
+<td>Return merged config + Langfuse version.</td>
 </tr>
 </tbody>
 </table>
-<p>Returned <code>version</code> is <code>"fallback"</code> when the registry is not used; otherwise
-it is the stringified Langfuse version number. The merge is permissive at
-the loader layer; callers are responsible for pulling only the fields they
-trust to be Langfuse-managed (see <code>_pull_llm_text</code> in <code>crews/base.py</code>).</p>
-<h3 id="46-observability"><a class="toclink" href="#46-observability">4.6 Observability</a></h3>
-<h4 id="connectors"><a class="toclink" href="#connectors">Connectors</a></h4>
-<p><code>BaseConnector</code> (in <code>core/observability/base.py</code>) defines the contract every
-observability backend implements:</p>
+<p>The Langfuse SDK caches prompts in-process for <code>cache_ttl</code> seconds (default 300).
+Production updates land within that TTL on already-running processes.</p>
+<h3 id="46-observability-connector-layer"><a class="toclink" href="#46-observability-connector-layer">4.6 Observability — connector layer</a></h3>
+<p><strong><code>BaseConnector</code></strong> (abstract):</p>
 <pre><code class="language-python">class BaseConnector(ABC):
-    handles_step_callbacks: bool = True
-    @property
-    @abstractmethod
-    def enabled(self) -&gt; bool: ...
-    @abstractmethod
-    @contextmanager
+    handles_step_callbacks: bool = True   # set False on backends with native CrewAI patching
+    @property @abstractmethod def enabled(self) -&gt; bool: ...
+    @abstractmethod @contextmanager
     def span(self, name, span_type, input_data=None, metadata=None) -&gt; Iterator[SpanHandle]: ...
     def flush(self) -&gt; None: pass
     def update_run_context(self, context) -&gt; None: pass
 </code></pre>
-<p>Concrete connectors:</p>
+<p><strong><code>SpanHandle</code></strong> — yielded from <code>span()</code>. Callers may invoke <code>set_output(...)</code>
+<em>and</em> <code>mark_error()</code> <strong>at most once each</strong> before the context manager exits.
+Connectors do not merge multiple calls.</p>
+<p><strong><code>ConnectorManager</code></strong> — holds a list of enabled connectors. <code>span()</code> opens
+each backend's span inside an <code>ExitStack</code> and yields a <code>MultiSpanHandle</code> that
+fans <code>set_output</code> / <code>mark_error</code> calls out. <code>flush()</code> and <code>update_run_context()</code>
+fan out similarly. <code>for_callbacks()</code> returns a filtered manager containing only
+connectors with <code>handles_step_callbacks=True</code>.</p>
+<p><strong><code>EnrichedConnectorManager</code></strong> — wraps a <code>ConnectorManager</code> and adds:</p>
 <ul>
-<li><code>LangfuseConnector</code> — opens Langfuse spans, propagates <code>RunContext</code> to trace metadata.</li>
-<li><code>DatadogConnector</code> — gated by <code>DD_LLMOBS_ENABLED</code>; uses native CrewAI instrumentation
-  (so <code>handles_step_callbacks=False</code>).</li>
+<li><code>RunContext</code> propagation: every <code>span()</code> call merges <code>ctx.as_metadata()</code> with
+  the caller's metadata, then sorts the merged dict with <code>reverse=True</code> (see
+  4.9) before passing to the inner manager.</li>
+<li><code>crew_callbacks</code> (a <code>CrewCallbacks</code> instance) wired against a
+  callbacks-filtered child manager, so only Langfuse-style connectors observe
+  step/task sub-spans.</li>
+<li><code>update_run_context(ctx)</code> is called on every connector at construction so
+  trace-level fields (Langfuse session/user, Datadog session_id/tags) are set
+  before the first span.</li>
 </ul>
-<p><code>ConnectorManager</code> fans <code>span()</code>/<code>flush()</code>/<code>update_run_context()</code> out across all
-enabled connectors. <code>EnrichedConnectorManager</code> wraps it and injects <code>RunContext</code>
-into every span's metadata + propagates context to each connector.</p>
-<h4 id="spanhandle-protocol"><a class="toclink" href="#spanhandle-protocol">SpanHandle protocol</a></h4>
-<p>Connector <code>span()</code> yields a <code>SpanHandle</code>. Callers may call <code>set_output(...)</code> and
-<code>mark_error()</code> <strong>at most once each</strong> before the context manager exits. The base
-class does not merge multiple calls.</p>
-<h4 id="run-context"><a class="toclink" href="#run-context">Run context</a></h4>
-<p><code>RunContext</code> (in <code>core/observability/context/run_context.py</code>) is the run's
-identity card. It is built once per crew run by <code>make_run_context(crew_name,
-crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to every span.</p>
+<p><strong>Concrete connectors:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Connector</th>
+<th><code>handles_step_callbacks</code></th>
+<th>How RunContext flows in</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LangfuseConnector</code></td>
+<td><code>True</code></td>
+<td>Span metadata kwarg (via <code>EnrichedConnectorManager</code>) + <code>propagate_attributes(session_id, user_id, tags)</code> inside each span</td>
+<td>Uses <code>client.start_as_current_observation(name=…, as_type=…)</code>.</td>
+</tr>
+<tr>
+<td><code>DatadogConnector</code></td>
+<td><code>False</code></td>
+<td>The connector itself merges <code>RunContext.as_metadata()</code> into each span's <code>LLMObs.annotate(metadata=…)</code> and adds <code>as_dd_tags()</code></td>
+<td><code>ddtrace</code> already patches CrewAI natively; step/task callbacks are skipped to avoid double-instrumentation.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="47-span-types-truncation-and-crewai-callbacks"><a class="toclink" href="#47-span-types-truncation-and-crewai-callbacks">4.7 Span types, truncation, and CrewAI callbacks</a></h3>
+<p><strong>Span type vocabulary</strong> (passed as the second arg of <code>obs.span()</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Internal</th>
+<th>Datadog mapping</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chain</code></td>
+<td><code>workflow</code></td>
+<td>The crew root span.</td>
+</tr>
+<tr>
+<td><code>span</code></td>
+<td><code>task</code></td>
+<td><code>crew.kickoff</code>, <code>task.complete</code>.</td>
+</tr>
+<tr>
+<td><code>agent</code></td>
+<td><code>agent</code></td>
+<td><code>agent.step</code> (per CrewAI step callback).</td>
+</tr>
+<tr>
+<td><code>tool</code></td>
+<td><code>tool</code></td>
+<td>Reserved — not currently emitted internally.</td>
+</tr>
+<tr>
+<td><code>generation</code></td>
+<td><code>llm</code></td>
+<td>Reserved — emitted by ddtrace's native patching for Datadog.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Field truncation</strong> (<code>core/observability/span_limits.py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Max chars</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>THOUGHT</code></td>
+<td>500</td>
+</tr>
+<tr>
+<td><code>TOOL_INPUT</code></td>
+<td>500</td>
+</tr>
+<tr>
+<td><code>TASK_DESCRIPTION</code></td>
+<td>500</td>
+</tr>
+<tr>
+<td><code>AGENT_ROLE</code></td>
+<td>100</td>
+</tr>
+<tr>
+<td><code>STEP_OUTPUT</code></td>
+<td>500</td>
+</tr>
+<tr>
+<td><code>RESULT</code></td>
+<td>2000</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Step / task callbacks</strong> (<code>callbacks.py</code>):</p>
+<ul>
+<li><code>_StepCallback</code> opens a span <code>agent.step</code> (<code>"agent"</code> type). For
+  <code>AgentFinish</code>, it extracts thought + return value and detects the specific
+  CrewAI "failed to parse LLM response" string as a parse-failure annotation.
+  For <code>AgentAction</code>, it captures thought, tool, tool_input.</li>
+<li><code>_TaskCallback</code> opens a span <code>task.complete</code> (<code>"span"</code> type) with truncated
+  task description, agent role, and result.</li>
+</ul>
+<p>Both run inside their own <code>try/except</code> so a callback error never breaks the
+crew run.</p>
+<h3 id="48-runcontext-the-runs-identity-card"><a class="toclink" href="#48-runcontext-the-runs-identity-card">4.8 RunContext — the run's identity card</a></h3>
+<p>Built once per crew run by <code>make_run_context(...)</code> and propagated to every span
+by <code>EnrichedConnectorManager</code>. <code>core/observability/context/run_context.py</code>:</p>
 <table>
 <thead>
 <tr>
@@ -495,13 +570,13 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 <tbody>
 <tr>
 <td><code>session_id</code></td>
-<td>Streamlit tab (cached in <code>st.session_state</code>)</td>
-<td>One per browser tab.</td>
+<td>Streamlit tab (<code>st.session_state.obs_session_id</code>)</td>
+<td>One per browser tab. Falls back to <code>SESSION_ID</code> env then <code>uuid4()</code> outside Streamlit.</td>
 </tr>
 <tr>
 <td><code>run_id</code></td>
 <td><code>uuid4()</code> per crew run</td>
-<td>Also default for <code>workflow_id</code>.</td>
+<td>Also the default for <code>workflow_id</code>.</td>
 </tr>
 <tr>
 <td><code>user_id</code></td>
@@ -510,8 +585,8 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 </tr>
 <tr>
 <td><code>environment</code></td>
-<td><code>ENVIRONMENT</code> env var, default <code>dev</code></td>
-<td>Drives <code>config/environments/&lt;env&gt;.yaml</code> lookup.</td>
+<td><code>ENVIRONMENT</code> env (default <code>dev</code>)</td>
+<td>Selects <code>config/environments/&lt;env&gt;.yaml</code>.</td>
 </tr>
 <tr>
 <td><code>app_version</code></td>
@@ -521,22 +596,22 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 <tr>
 <td><code>crew_name</code></td>
 <td>Caller-provided</td>
-<td>E.g. <code>"researcher"</code>, <code>"fitness_training"</code>.</td>
+<td>e.g. <code>"researcher"</code>, <code>"fitness_training"</code>.</td>
 </tr>
 <tr>
 <td><code>flow_name</code></td>
-<td>Caller-provided (from <code>Flow.flow_name</code>)</td>
-<td>Same as <code>crew_name</code> today (1:1 mapping); diverges when a flow orchestrates more than one crew.</td>
+<td>From <code>Flow.flow_name</code> class attr</td>
+<td>Same as <code>crew_name</code> today (1:1); will diverge if a Flow grows to orchestrate multiple Crews.</td>
 </tr>
 <tr>
 <td><code>crew_version</code></td>
-<td>Pulled from the crew class</td>
-<td>Crew recipe semver.</td>
+<td><code>Crew.crew_version</code> class attr (passed by Flow)</td>
+<td>Recipe semver.</td>
 </tr>
 <tr>
 <td><code>flow_version</code></td>
-<td>Pulled from the flow class</td>
-<td>Flow recipe semver. Independent of <code>crew_version</code>.</td>
+<td><code>Flow.flow_version</code> class attr</td>
+<td>Flow recipe semver.</td>
 </tr>
 <tr>
 <td><code>deployment_sha</code></td>
@@ -550,77 +625,135 @@ crew_version)</code> and propagated via <code>EnrichedConnectorManager</code> to
 </tr>
 <tr>
 <td><code>workflow_id</code></td>
-<td>Settable, defaults to <code>run_id</code></td>
+<td>Settable property; defaults to <code>run_id</code></td>
 <td>For grouping retries of the same logical workflow.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="47-versioning-model-three-layers"><a class="toclink" href="#47-versioning-model-three-layers">4.7 Versioning model (three layers)</a></h3>
+<p>Three projections used by connectors:</p>
+<ul>
+<li><code>as_metadata()</code> — flat dict for trace/span metadata (drops empty values).</li>
+<li><code>as_tags()</code> — list of <code>key:value</code> strings for Langfuse trace tags (e.g.
+  <code>env:dev</code>, <code>crew:researcher</code>, <code>flow:researcher</code>, <code>version:1.0.0</code>,
+  <code>sha:&lt;8-char-prefix&gt;</code>).</li>
+<li><code>as_dd_tags()</code> — flat dict for Datadog tag annotation (with the SHA
+  truncated to 8 chars).</li>
+</ul>
+<h3 id="49-four-layer-versioning-model"><a class="toclink" href="#49-four-layer-versioning-model">4.9 Four-layer versioning model</a></h3>
+<p>The trace carries four independent identity axes. Each is filterable in
+Langfuse without affecting the others.</p>
 <table>
 <thead>
 <tr>
 <th>Layer</th>
 <th>Field(s)</th>
-<th>Owner</th>
 <th>When it changes</th>
+<th>Owner</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Deployment</strong></td>
-<td><code>app_version</code> (<code>VERSION</code> file), <code>deployment_sha</code></td>
+<td><code>app_version</code> (<code>VERSION</code> file) + <code>deployment_sha</code> (env config)</td>
+<td>Every deploy</td>
 <td>Build/release</td>
-<td>Every deploy.</td>
 </tr>
 <tr>
 <td><strong>Flow recipe</strong></td>
-<td><code>flow_version</code> (semver on the Flow class)</td>
+<td><code>flow_version</code> (<code>ClassVar</code> on the Flow class)</td>
+<td>Manual PR bump when <code>@start</code>/<code>@listen</code>/<code>@router</code> topology, state-model fields, orchestrated crew(s), or post-processing semantics change</td>
 <td>Flow authors</td>
-<td>Manual PR bump when the Flow body changes: <code>@start</code>/<code>@listen</code>/<code>@router</code> topology, state-model fields, which crew(s) it orchestrates, or post-processing.</td>
 </tr>
 <tr>
 <td><strong>Crew recipe</strong></td>
-<td><code>crew_version</code> (semver on the crew class)</td>
+<td><code>crew_version</code> (<code>ClassVar</code> on the Crew class)</td>
+<td>Manual PR bump when <code>_agent_yaml_names</code>, <code>_task_yaml_names</code>, <code>_format_result</code>, the wired tool set, or a prompt key changes</td>
 <td>Crew authors</td>
-<td>Manual PR bump when the recipe (agent list, task order, tools, task-YAML wiring, formatting code) changes.</td>
 </tr>
 <tr>
 <td><strong>Per-run prompt resolution</strong></td>
-<td><code>agents_signature</code> + <code>tasks_signature</code> (root-span metadata), plus per-prompt <code>prompt_name</code>/<code>prompt_version</code>/<code>prompt_source</code> entries</td>
+<td><code>agents_signature</code>, <code>tasks_signature</code> (root-span metadata) + per-prompt <code>prompt_version</code> entries</td>
+<td>Auto — whenever Langfuse serves a different version for any agent/task prompt</td>
 <td>Runtime + Langfuse</td>
-<td>Auto — whenever Langfuse serves a different version for any agent or task prompt.</td>
 </tr>
 </tbody>
 </table>
-<p>These four are independent filter axes in Langfuse: bucket by deployment,
-flow recipe, crew recipe, or resolved prompts, in any combination. Flow and
-crew versions move independently — changing a Flow's topology bumps
-<code>flow_version</code> only; changing a Crew's agent list bumps <code>crew_version</code> only.</p>
+<p>The non-overlap matters:</p>
+<ul>
+<li>A <strong>Langfuse prompt edit</strong> moves the <code>*_signature</code>; <code>crew_version</code>/<code>flow_version</code>
+  do not bump.</li>
+<li>A <strong>crew YAML / code change</strong> (swap an agent, reorder tasks) bumps
+  <code>crew_version</code>; <code>flow_version</code> does not bump.</li>
+<li>A <strong>flow body change</strong> (add a <code>@listen</code>, change state shape) bumps
+  <code>flow_version</code>; <code>crew_version</code> does not bump.</li>
+<li>A <strong>deploy</strong> moves <code>deployment_sha</code> regardless of any recipe change.</li>
+</ul>
+<p>The bump rules are codified as comments next to each <code>flow_version</code> and
+<code>crew_version</code> declaration in code.</p>
+<h3 id="410-trace-metadata-key-order"><a class="toclink" href="#410-trace-metadata-key-order">4.10 Trace metadata key order</a></h3>
+<p>Langfuse renders dict keys in reverse-insertion order. To present a stable
+forward-alphabetical view in the UI, <code>EnrichedConnectorManager._merged_metadata</code>
+sorts the final dict with <code>reverse=True</code> before handing it to the inner
+connector. This is the single source of truth for trace key ordering — the
+producer-side dicts (<code>RunContext.as_metadata()</code>, <code>BaseCrew._build_prompt_meta()</code>)
+are intentionally insertion-ordered.</p>
+<p>This couples our code to a Langfuse rendering quirk. If Langfuse ever switches
+to insertion-order display, flip the <code>reverse</code> flag (one line, in
+<code>enriched.py</code>). The coupling is documented in-place.</p>
 <hr>
-<h2 id="5-runtime-sequence-one-crew-run"><a class="toclink" href="#5-runtime-sequence-one-crew-run">5. Runtime Sequence (one crew run)</a></h2>
+<h2 id="5-runtime-sequence-one-research-run"><a class="toclink" href="#5-runtime-sequence-one-research-run">5. Runtime Sequence (one Research run)</a></h2>
 <pre><code>crew_app.py
-  └─ _run_flow(ResearchFlow, {&quot;question&quot;: ...})
-       └─ ResearchFlow.kickoff()
-            └─ ResearchFlow.run_research()
-                 ├─ make_run_context(&quot;researcher&quot;, crew_version=ResearchCrew.crew_version)
-                 ├─ EnrichedConnectorManager(_get_connectors(), ctx)
+  └─ _run_flow(ResearchFlow, {&quot;question&quot;: &quot;...&quot;})
+       └─ ResearchFlow(connectors_factory=lambda: connectors).kickoff(inputs)
+            └─ ResearchFlow.run_research()           [@start()]
+                 ├─ make_run_context(
+                 │       crew_name=&quot;researcher&quot;,
+                 │       crew_version=ResearchCrew.crew_version,    # e.g. &quot;1.0.0&quot;
+                 │       flow_name=self.flow_name,                  # &quot;researcher&quot;
+                 │       flow_version=self.flow_version,            # &quot;1.0.0&quot;
+                 │   )                                              → RunContext
+                 ├─ EnrichedConnectorManager(connectors, ctx)
                  └─ ResearchCrew().run(inputs, obs)
                       ├─ assert self.crew_version
-                      ├─ PromptLoader.get(&quot;agent.researcher&quot;, fallback=...)        ← Langfuse
-                      ├─ PromptLoader.get(&quot;task.research_task&quot;, fallback=...)      ← Langfuse
-                      ├─ build Task(description.format(**safe_inputs), **wiring)
-                      ├─ Crew(agents, tasks, **get_crew_kwargs(obs))
-                      ├─ obs.span(crew_name, &quot;chain&quot;, metadata={...prompt_meta, agents_signature, tasks_signature, ...})
-                      │   └─ kickoff_crew(crew, obs)
-                      │        ├─ captures stdout/stderr
-                      │        ├─ runs CrewAI internals (each step/task creates child spans
-                      │        │   via callbacks for Langfuse; native ddtrace patching for Datadog)
-                      │        └─ returns (result, stdout, stderr)
-                      ├─ _format_result(...)
-                      ├─ root.set_output({&quot;result&quot;: output})
-                      └─ return {result, stdout, stderr, prompt_versions}
-            └─ ResearchFlow state populated
-       └─ obs.flush()        ← drains pending Langfuse / Datadog batches
+                      ├─ _load_agents()
+                      │    └─ for each agents/&lt;name&gt;.yaml:
+                      │         · PromptLoader.get(&quot;agent.&lt;prompt_key&gt;&quot;, fallback=…)
+                      │         · _pull_llm_text(prompt.config, fallback, _AGENT_LLM_TEXT_FIELDS)
+                      │         · Agent(**agent_text, verbose=…, allow_delegation=…)
+                      ├─ _load_tasks(agents, inputs)
+                      │    └─ for each tasks/&lt;name&gt;.yaml:
+                      │         · PromptLoader.get(&quot;task.&lt;prompt_key&gt;&quot;, fallback=…)
+                      │         · _pull_llm_text(prompt.config, fallback, _TASK_LLM_TEXT_FIELDS)
+                      │         · description.format(**safe_inputs)
+                      │         · Task(description, expected_output, agent, **wiring_kwargs)
+                      ├─ Crew(agents, tasks, verbose=True, **get_crew_kwargs(obs))
+                      │       # get_crew_kwargs injects step_callback + task_callback
+                      ├─ _build_prompt_meta(agent_prompts, task_prompts)
+                      │       → { agent.&lt;n&gt;.prompt_name/version/source/role/goal/backstory,
+                      │           agents_signature,
+                      │           task.&lt;n&gt;.prompt_name/version/source,
+                      │           tasks_signature }
+                      └─ with obs.span(crew_name, &quot;chain&quot;, input_data=inputs,
+                                       metadata={&quot;framework&quot;:&quot;crewai&quot;,&quot;crew&quot;:…, **prompt_meta}) as root:
+                              # EnrichedConnectorManager._merged_metadata:
+                              #   merge RunContext.as_metadata() + this metadata
+                              #   then sorted(..., reverse=True)
+                              │
+                              └─ kickoff_crew(crew, obs, input_data=inputs)
+                                   └─ with obs.span(&quot;crew.kickoff&quot;, &quot;span&quot;) as kickoff:
+                                        · contextlib.redirect_stdout/stderr
+                                        · result = crew.kickoff(inputs=…)
+                                          ─ on each agent step → CrewCallbacks.on_agent_step
+                                             └─ obs.span(&quot;agent.step&quot;, &quot;agent&quot;)
+                                          ─ on each task done → CrewCallbacks.on_task_complete
+                                             └─ obs.span(&quot;task.complete&quot;, &quot;span&quot;)
+                                        · kickoff.set_output({result, stdout, stderr})
+                                        · on exception: kickoff.mark_error(); re-raise
+                          # root span sets output, returns
+                      └─ return {&quot;result&quot;, &quot;stdout&quot;, &quot;stderr&quot;, &quot;prompt_versions&quot;: prompt_meta}
+            └─ flow.state populated; obs.flush() (Langfuse + Datadog batches)
+       └─ flow result dict returned to crew_app
+  └─ _show_output(...) renders result + Prompt sources panel + stdout/stderr expander
 </code></pre>
 <hr>
 <h2 id="6-configuration"><a class="toclink" href="#6-configuration">6. Configuration</a></h2>
@@ -648,7 +781,7 @@ crew versions move independently — changing a Flow's topology bumps
 </tr>
 </tbody>
 </table>
-<h4 id="optional-observability-runtime"><a class="toclink" href="#optional-observability-runtime">Optional — observability / runtime</a></h4>
+<h4 id="optional-runtime"><a class="toclink" href="#optional-runtime">Optional — runtime</a></h4>
 <table>
 <thead>
 <tr>
@@ -661,47 +794,7 @@ crew versions move independently — changing a Flow's topology bumps
 <tr>
 <td><code>LANGFUSE_BASE_URL</code></td>
 <td><code>https://cloud.langfuse.com</code></td>
-<td>Self-hosted Langfuse override.</td>
-</tr>
-<tr>
-<td><code>DD_LLMOBS_ENABLED</code></td>
-<td>unset (disabled)</td>
-<td><code>1</code>/<code>true</code> to enable Datadog LLMObs.</td>
-</tr>
-<tr>
-<td><code>DD_API_KEY</code></td>
-<td>—</td>
-<td>Required when <code>DD_LLMOBS_ENABLED</code>.</td>
-</tr>
-<tr>
-<td><code>DD_SITE</code></td>
-<td><code>datadoghq.com</code></td>
-<td>Datadog regional site.</td>
-</tr>
-<tr>
-<td><code>DD_LLMOBS_ML_APP</code></td>
-<td><code>crew-streamlit</code></td>
-<td>Datadog "ML App" identifier.</td>
-</tr>
-<tr>
-<td><code>DD_LLMOBS_AGENTLESS_ENABLED</code></td>
-<td><code>true</code></td>
-<td>Bypass local Datadog Agent.</td>
-</tr>
-<tr>
-<td><code>DD_LLMOBS_INTEGRATIONS_ENABLED</code></td>
-<td><code>true</code></td>
-<td>Auto-instrument OpenAI etc.</td>
-</tr>
-<tr>
-<td><code>DD_TRACE_LLMOBS_IN_CODE</code></td>
-<td><code>1</code></td>
-<td>Skip in-code init (rely on <code>ddtrace-run</code>).</td>
-</tr>
-<tr>
-<td><code>DD_ENV</code>, <code>DD_SERVICE</code></td>
-<td>—</td>
-<td>Datadog tags.</td>
+<td>Self-hosted Langfuse.</td>
 </tr>
 <tr>
 <td><code>ENVIRONMENT</code></td>
@@ -733,92 +826,148 @@ crew versions move independently — changing a Flow's topology bumps
 <td>env config</td>
 <td>Override the recorded build SHA.</td>
 </tr>
+<tr>
+<td><code>SESSION_ID</code></td>
+<td><code>uuid4()</code></td>
+<td>Override when not running under Streamlit.</td>
+</tr>
+<tr>
+<td><code>SEED_LABEL</code></td>
+<td><code>production</code></td>
+<td>Label used by <code>scripts/seed_prompts.py</code>.</td>
+</tr>
 </tbody>
 </table>
-<p><code>crew_app.py</code> calls <code>dotenv.load_dotenv()</code> at import, so a <code>.env</code> file in the
-repo root is picked up automatically. <strong><code>.env</code> is gitignored — never commit it.</strong></p>
-<h3 id="environment-specific-configuration"><a class="toclink" href="#environment-specific-configuration">Environment-specific configuration</a></h3>
-<p><code>config/environments/&lt;env&gt;.yaml</code> holds non-secret per-environment defaults:</p>
+<h4 id="optional-datadog-llm-observability"><a class="toclink" href="#optional-datadog-llm-observability">Optional — Datadog LLM Observability</a></h4>
+<table>
+<thead>
+<tr>
+<th>Var</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DD_LLMOBS_ENABLED</code></td>
+<td>unset (disabled)</td>
+<td><code>1</code>/<code>true</code> to enable. Read at import time.</td>
+</tr>
+<tr>
+<td><code>DD_TRACE_LLMOBS_IN_CODE</code></td>
+<td><code>1</code></td>
+<td>Skip in-code init (rely on <code>ddtrace-run</code>).</td>
+</tr>
+<tr>
+<td><code>DD_API_KEY</code></td>
+<td>—</td>
+<td>Required when enabled.</td>
+</tr>
+<tr>
+<td><code>DD_SITE</code></td>
+<td><code>datadoghq.com</code></td>
+<td>Datadog regional site.</td>
+</tr>
+<tr>
+<td><code>DD_LLMOBS_ML_APP</code></td>
+<td><code>crew-streamlit</code></td>
+<td>ML App identifier.</td>
+</tr>
+<tr>
+<td><code>DD_LLMOBS_AGENTLESS_ENABLED</code></td>
+<td><code>true</code></td>
+<td>Bypass local Datadog Agent.</td>
+</tr>
+<tr>
+<td><code>DD_LLMOBS_INTEGRATIONS_ENABLED</code></td>
+<td><code>true</code></td>
+<td>Auto-instrument OpenAI etc.</td>
+</tr>
+<tr>
+<td><code>DD_ENV</code>, <code>DD_SERVICE</code></td>
+<td>—</td>
+<td>Datadog resource tags.</td>
+</tr>
+<tr>
+<td><code>DD_LLMOBS_SESSION_ID</code></td>
+<td>—</td>
+<td>Hard override for span session_id when RunContext doesn't carry one.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="environment-files"><a class="toclink" href="#environment-files">Environment files</a></h3>
+<p><code>config/environments/&lt;env&gt;.yaml</code>:</p>
 <pre><code class="language-yaml"># config/environments/dev.yaml
 environment: dev
 deployment_sha: &quot;local&quot;
 model_defaults:
   default: gpt-4o-mini
 </code></pre>
-<p>The file is selected by <code>ENVIRONMENT</code> (default <code>dev</code>). Cached after first read.</p>
+<p>Selected by <code>ENVIRONMENT</code>. Cached in-process after first read.</p>
+<h3 id="local-secrets"><a class="toclink" href="#local-secrets">Local secrets</a></h3>
+<p><code>.env</code> at the repo root is loaded by <code>crew_app.py</code> at import time (via
+<code>python-dotenv</code>). It is gitignored and must remain so.</p>
 <hr>
 <h2 id="7-extension-points"><a class="toclink" href="#7-extension-points">7. Extension Points</a></h2>
 <h3 id="add-a-new-crew"><a class="toclink" href="#add-a-new-crew">Add a new crew</a></h3>
 <ol>
-<li><strong>Agent YAML</strong> — create <code>agents/&lt;agent&gt;.yaml</code> with <code>prompt_key</code>, <code>fallback</code>
-   dict (role/goal/backstory).</li>
-<li><strong>Task YAML(s)</strong> — create <code>tasks/&lt;task&gt;.yaml</code> with <code>task_name</code>, <code>agent</code>,
-   <code>prompt_key</code>, and a <code>fallback</code> block (<code>description</code>, <code>expected_output</code>).
-   Any other CrewAI Task kwarg can be added at the top level and is forwarded
-   to <code>Task(**kwargs)</code>.</li>
-<li><strong>Crew class</strong> — <code>crews/&lt;name&gt;_crew.py</code>:
-   <code>python
-   class MyCrew(BaseCrew):
+<li><strong>Agent YAML</strong> — <code>agents/&lt;agent&gt;.yaml</code> with <code>prompt_key</code>, optional <code>verbose</code>/<code>allow_delegation</code>, and a <code>fallback</code> dict (<code>role</code>, <code>goal</code>, <code>backstory</code>).</li>
+<li><strong>Task YAML</strong> — <code>tasks/&lt;task&gt;.yaml</code> with <code>task_name</code>, <code>agent</code> (the YAML stem of the agent), <code>prompt_key</code>, and a <code>fallback</code> dict (<code>description</code>, <code>expected_output</code>).</li>
+<li><strong>Crew class</strong> — <code>crews/&lt;n&gt;_crew.py</code>:
+   ```python
+   from typing import List
+   from .base import BaseCrew</li>
+</ol>
+<p>class MyCrew(BaseCrew):
        crew_version = "1.0.0"
        @property
        def crew_name(self): return "crewai.my_crew"
        @property
        def _agent_yaml_names(self): return ["my_agent.yaml"]
        @property
-       def _task_yaml_names(self): return ["my_task.yaml"]</code></li>
-<li><strong>Flow</strong> — <code>flows/&lt;name&gt;_flow.py</code> mirroring <code>ResearchFlow</code>.</li>
-<li><strong>Langfuse prompts</strong> — create one prompt per agent (<code>agent.&lt;prompt_key&gt;</code>)
-   and one per task (<code>task.&lt;prompt_key&gt;</code>), labeled <code>production</code>. Easiest:
-   run <code>python scripts/seed_prompts.py</code> which walks both YAML directories.
-   Without these, the YAML fallback is used.</li>
-<li><strong>UI tab</strong> — add a tab in <code>crew_app.py</code> that calls <code>_run_flow(MyFlow, {...})</code>.</li>
-</ol>
-<h3 id="add-a-new-observability-connector"><a class="toclink" href="#add-a-new-observability-connector">Add a new observability connector</a></h3>
+       def _task_yaml_names(self): return ["my_task.yaml"]
+   <code>``
+4. **Flow class** —</code>flows/<n>_flow.py<code>mirroring</code>ResearchFlow<code>. Set</code>flow_name<code>and</code>flow_version<code>as</code>ClassVar<code>strings.
+5. **Langfuse prompts** —</code>scripts/seed_prompts.py<code>will pick up the new
+   YAMLs automatically. Run it once to create</code>agent.<prompt_key><code>and</code>task.<prompt_key><code>at v1 production.
+6. **UI tab** — add a tab in</code>crew_app.py<code>that calls</code>_run_flow(MyFlow, {...})`.</p>
+<h3 id="add-a-new-observability-backend"><a class="toclink" href="#add-a-new-observability-backend">Add a new observability backend</a></h3>
 <ol>
 <li>Subclass <code>BaseConnector</code> in <code>core/observability/&lt;name&gt;_connector.py</code>.</li>
-<li>Implement <code>enabled</code>, <code>span()</code>, and (optionally) <code>flush()</code> /
-   <code>update_run_context()</code>.</li>
-<li>If the backend has its own CrewAI instrumentation, set
-   <code>handles_step_callbacks = False</code>.</li>
+<li>Implement <code>enabled</code>, <code>@contextmanager span()</code>, optionally <code>flush()</code> and
+   <code>update_run_context()</code>. Yield a <code>SpanHandle</code> subclass from <code>span()</code>.</li>
+<li>If the backend has native CrewAI instrumentation, set
+   <code>handles_step_callbacks = False</code> so our step/task callbacks don't
+   double-instrument.</li>
 <li>Wire an instance into <code>_get_connectors()</code> in <code>crew_app.py</code>.</li>
 </ol>
 <h3 id="edit-a-prompt-without-a-deploy"><a class="toclink" href="#edit-a-prompt-without-a-deploy">Edit a prompt without a deploy</a></h3>
-<p>Works the same for <strong>agent</strong> (<code>agent.&lt;name&gt;</code>) and <strong>task</strong> (<code>task.&lt;name&gt;</code>)
-prompts: edit in the Langfuse UI, promote to <code>production</code>. Active runs pick
-it up after the cache TTL (<code>cache_ttl=300s</code> by default). The recipe
-(<code>crew_version</code>) does not need to change; the new version shows up in
-<code>agents_signature</code> / <code>tasks_signature</code> and per-prompt <code>prompt_version</code>
-metadata on the trace.</p>
-<p>Only the LLM-text fields are honored from Langfuse: extra keys you might
-add to a prompt's Config dict are dropped at the loader. To change wiring
-(<code>agent</code>, <code>tools</code>, <code>context</code>, <code>output_pydantic</code>, ...) edit the YAML and bump
-<code>crew_version</code>.</p>
+<p>Open Langfuse → Prompts → <code>agent.&lt;key&gt;</code> or <code>task.&lt;key&gt;</code> → edit → promote to
+the <code>production</code> label. Active processes pick up the new version within the
+SDK cache TTL (default 300 s, configurable per call). The change shows up in
+the trace's <code>*_signature</code> and per-prompt <code>prompt_version</code> metadata. No code
+deploy, no recipe-version bump.</p>
+<h3 id="add-a-crewai-task-field"><a class="toclink" href="#add-a-crewai-task-field">Add a CrewAI Task field</a></h3>
+<p>If CrewAI ships a new <code>Task(**)</code> kwarg (e.g. <code>human_input</code>, <code>markdown</code>,
+<code>async_execution</code>), just add the key to the task YAML next to <code>agent:</code> /
+<code>prompt_key:</code>. The loader forwards anything outside <code>_TASK_RESERVED_KEYS</code>
+verbatim into <code>Task(**)</code>. Note: <code>context</code> (Task→Task dependency) and
+<code>output_pydantic</code> (<code>"module:Class"</code> style) need a resolver pass before raw
+passthrough is safe — add when needed.</p>
 <hr>
 <h2 id="8-user-instructions"><a class="toclink" href="#8-user-instructions">8. User Instructions</a></h2>
 <h3 id="81-first-time-setup"><a class="toclink" href="#81-first-time-setup">8.1 First-time setup</a></h3>
-<p><strong>Prerequisites</strong></p>
-<ul>
-<li>Python 3.12 (matching <code>runtime.txt</code>)</li>
-<li>Git, Node.js (only if you want the <code>skills</code> CLI for <code>.agents/</code> skill packs)</li>
-<li>A Langfuse project and API keys</li>
-<li>An OpenAI API key</li>
-</ul>
-<p><strong>Install</strong></p>
-<pre><code class="language-bash"># Clone
-git clone &lt;repo-url&gt; langfuse-chat
+<pre><code class="language-bash">git clone &lt;repo-url&gt; langfuse-chat
 cd langfuse-chat
 
-# Virtualenv (recommended)
 py -3.12 -m venv .venv
 .venv\Scripts\activate            # Windows
 # source .venv/bin/activate       # macOS / Linux
 
-# Dependencies
 pip install -r requirements.txt
 </code></pre>
-<p><strong>Configure</strong></p>
-<p>Create <code>.env</code> in the repo root:</p>
-<pre><code class="language-bash">LANGFUSE_PUBLIC_KEY=pk-lf-...
+<p>Create <code>.env</code> at the repo root:</p>
+<pre><code class="language-env">LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
 OPENAI_API_KEY=sk-...
@@ -830,55 +979,53 @@ ENVIRONMENT=dev
 # DD_SITE=datadoghq.com
 # DD_LLMOBS_ML_APP=crew-streamlit
 </code></pre>
-<p><code>.env</code> is gitignored — keep it that way.</p>
-<p><strong>Seed Langfuse prompts (optional but recommended)</strong></p>
-<pre><code class="language-bash">python scripts/seed_prompts.py
+<p>Seed Langfuse with v1 prompts for every agent and task:</p>
+<pre><code class="language-bash">py -3.12 scripts/seed_prompts.py
 </code></pre>
-<p>Walks both <code>agents/*.yaml</code> and <code>tasks/*.yaml</code>, creates one Langfuse prompt
-per concept under its namespaced name (<code>agent.researcher</code>, <code>task.research_task</code>,
-…) at version 1, labeled <code>production</code>. Without it, the app silently falls
-back to the <code>fallback:</code> block of each YAML.</p>
-<p>If you already have un-prefixed prompts in Langfuse (e.g. <code>researcher</code>), the
-runtime will now fetch <code>agent.researcher</code> and miss them — either rename them
-in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
+<p>Expected output: one <code>[OK]</code> line per agent/task YAML. Re-running creates
+new versions on existing prompts (idempotent w.r.t. names; not w.r.t.
+versions) — the <code>production</code> label floats to the newest.</p>
 <h3 id="82-run-the-app"><a class="toclink" href="#82-run-the-app">8.2 Run the app</a></h3>
 <pre><code class="language-bash">py -3.12 -m streamlit run crew_app.py
 </code></pre>
 <p>The app opens at <code>http://localhost:8501</code> with three tabs:</p>
 <ul>
-<li><strong>Research</strong> — single-agent researcher. Enter a question, click <strong>Run research</strong>.</li>
-<li><strong>Fitness Training</strong> — three-agent pipeline (analyst → workout designer → nutrition
-  advisor). Fill the form, click <strong>Generate fitness plan</strong>.</li>
-<li><strong>Experiments</strong> — runs the researcher crew against a Langfuse dataset and
-  logs each item as a Langfuse experiment.</li>
+<li><strong>Research</strong> — single-agent flow. Enter a question, click <strong>Run research</strong>.</li>
+<li><strong>Fitness Training</strong> — three-agent pipeline (analyst → workout designer →
+  nutrition advisor). Fill the form, click <strong>Generate fitness plan</strong>.</li>
+<li><strong>Experiments</strong> — runs <code>ResearchFlow</code> against a Langfuse dataset and logs
+  each item as a Langfuse experiment.</li>
 </ul>
-<p>Each result shows:</p>
+<p>Each result panel shows:</p>
 <ul>
-<li>The model output.</li>
-<li>A <strong>Prompt sources</strong> panel split into <strong>Agents</strong> and <strong>Tasks</strong> sections —
-  each row shows the local name, the Langfuse prompt name (e.g.
-  <code>agent.researcher</code>, <code>task.research_task</code>), its version, and whether it
-  resolved from Langfuse (green) or the YAML fallback (yellow).</li>
-<li>An expandable <strong>stdout / stderr</strong> capture from the CrewAI run.</li>
+<li>The model output (markdown rendered for fitness).</li>
+<li><strong>Prompt sources</strong> — per-agent prompt name + version, color-coded by source
+  (green for Langfuse, yellow for YAML fallback).</li>
+<li><strong>stdout / stderr</strong> — expandable capture from CrewAI internals.</li>
 </ul>
+<blockquote>
+<p><strong>Streamlit hot-reload caveat:</strong> editing files under <code>core/</code>, <code>crews/</code>,
+or <code>flows/</code> requires a full Streamlit restart (Ctrl-C, re-run). Streamlit
+hot-reloads the <em>script body</em> but not already-imported modules.</p>
+</blockquote>
 <h3 id="83-run-an-experiment"><a class="toclink" href="#83-run-an-experiment">8.3 Run an experiment</a></h3>
 <p>In the <strong>Experiments</strong> tab:</p>
 <ol>
-<li>Enter the dataset name (must already exist in your Langfuse project).</li>
-<li>Enter an experiment-name prefix (a timestamp suffix is appended automatically).</li>
+<li>Enter the Langfuse dataset name (must already exist in your project).</li>
+<li>Enter an experiment-name prefix (a timestamp suffix is appended).</li>
 <li>Click <strong>Run experiment</strong>.</li>
 </ol>
-<p>Results land in Langfuse → <strong>Datasets</strong> → <code>&lt;dataset&gt;</code> → <strong>Experiments</strong>.</p>
-<p>You can also run experiments headless:</p>
-<pre><code class="language-bash">python scripts/run_experiment.py
+<p>Results land in <strong>Langfuse → Datasets → <code>&lt;dataset&gt;</code> → Experiments</strong>.</p>
+<p>Headless alternative:</p>
+<pre><code class="language-bash">py -3.12 scripts/run_experiment.py
 </code></pre>
 <h3 id="84-read-traces-in-langfuse"><a class="toclink" href="#84-read-traces-in-langfuse">8.4 Read traces in Langfuse</a></h3>
-<p>Each crew run produces one trace. Useful metadata fields to filter on:</p>
+<p>Filter keys to know:</p>
 <table>
 <thead>
 <tr>
 <th>Field</th>
-<th>Where it lives</th>
+<th>Where</th>
 <th>What it tells you</th>
 </tr>
 </thead>
@@ -891,36 +1038,36 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 <tr>
 <td><code>flow_name</code></td>
 <td>Trace metadata + tag</td>
-<td>Which Flow orchestrated this run (<code>researcher</code>, <code>fitness_training</code>). Today same as <code>crew_name</code>; diverges for multi-crew flows.</td>
+<td>Which flow (<code>researcher</code>, <code>fitness_training</code>). Today equal to <code>crew_name</code>; diverges for multi-crew flows.</td>
 </tr>
 <tr>
 <td><code>crew_version</code></td>
 <td>Trace metadata</td>
-<td>Which <strong>crew recipe</strong> version. Bumped manually.</td>
+<td>Which <strong>recipe</strong> version (semver).</td>
 </tr>
 <tr>
 <td><code>flow_version</code></td>
 <td>Trace metadata</td>
-<td>Which <strong>flow recipe</strong> version. Bumped manually. Independent of <code>crew_version</code>.</td>
+<td>Which <strong>flow recipe</strong> version (semver).</td>
 </tr>
 <tr>
 <td><code>agents_signature</code></td>
-<td>Root span metadata</td>
-<td>Which <strong>agent prompt versions</strong> resolved (e.g. <code>"researcher@6"</code>).</td>
+<td>Root-span metadata</td>
+<td>Which agent prompt versions resolved (e.g. <code>"researcher@2"</code>).</td>
 </tr>
 <tr>
 <td><code>tasks_signature</code></td>
-<td>Root span metadata</td>
-<td>Which <strong>task prompt versions</strong> resolved (e.g. <code>"research@2"</code>).</td>
+<td>Root-span metadata</td>
+<td>Which task prompt versions resolved (e.g. <code>"research@1"</code>).</td>
 </tr>
 <tr>
-<td><code>agent.&lt;name&gt;.prompt_name</code> / <code>prompt_version</code> / <code>prompt_source</code></td>
-<td>Root span metadata</td>
-<td>Per-agent drill-down. <code>prompt_name</code> is the namespaced Langfuse name (e.g. <code>agent.researcher</code>).</td>
+<td><code>agent.&lt;n&gt;.prompt_version</code></td>
+<td>Root-span metadata</td>
+<td>Per-agent drill-down.</td>
 </tr>
 <tr>
-<td><code>task.&lt;name&gt;.prompt_name</code> / <code>prompt_version</code> / <code>prompt_source</code></td>
-<td>Root span metadata</td>
+<td><code>task.&lt;n&gt;.prompt_version</code></td>
+<td>Root-span metadata</td>
 <td>Per-task drill-down.</td>
 </tr>
 <tr>
@@ -935,18 +1082,16 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 </tr>
 <tr>
 <td><code>session_id</code> / <code>user_id</code></td>
-<td>Trace metadata</td>
+<td>Trace attribute</td>
 <td>Group by browser tab / user.</td>
 </tr>
 </tbody>
 </table>
-<p>Recommended bucketing:</p>
+<p>Useful combinations:</p>
 <ul>
-<li>Filter by <code>crew_version</code> → group runs of the same recipe.</li>
-<li>Filter by <code>agents_signature</code> + <code>tasks_signature</code> → group runs that
-  resolved to the same prompt set (agents and tasks both stable).</li>
-<li>Combine all three → isolate "this recipe with these prompts" for clean
-  A/B comparisons across deploys.</li>
+<li>Fix <code>crew_version</code> → group all runs of the same recipe.</li>
+<li>Fix <code>crew_version</code>, vary <code>tasks_signature</code> → A/B compare task prompt versions.</li>
+<li>Fix <code>flow_version</code>, vary <code>crew_version</code> → see crew-recipe evolution under a stable flow.</li>
 </ul>
 <h3 id="85-troubleshooting"><a class="toclink" href="#85-troubleshooting">8.5 Troubleshooting</a></h3>
 <table>
@@ -961,78 +1106,67 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 <tr>
 <td>App fails at start with <code>Missing required environment variable</code></td>
 <td><code>.env</code> not loaded or var missing.</td>
-<td>Check <code>.env</code> in the repo root; verify the listed required vars are set.</td>
+<td>Check <code>.env</code> exists at the repo root and required vars are set.</td>
 </tr>
 <tr>
 <td><strong>Prompt sources</strong> panel shows yellow "YAML fallback" warnings</td>
-<td>Langfuse prompt not found at <code>production</code> label, or Langfuse unreachable.</td>
-<td>Promote the prompt in Langfuse UI, or run <code>python scripts/seed_prompts.py</code>. Logs at WARNING level identify which.</td>
-</tr>
-<tr>
-<td>Yellow warnings after upgrading to namespaced prompts (<code>agent.X</code> / <code>task.X</code>)</td>
-<td>Existing Langfuse prompts still under their old un-prefixed names.</td>
-<td>Rename them in the Langfuse UI (preserves history) or re-seed via <code>scripts/seed_prompts.py</code>.</td>
-</tr>
-<tr>
-<td><code>task YAML ... missing required key(s) 'agent' or 'fallback'</code></td>
-<td>Task YAML still in pre-split shape (description at top level).</td>
-<td>Move <code>description</code> / <code>expected_output</code> into a <code>fallback:</code> block; add <code>prompt_key</code>.</td>
-</tr>
-<tr>
-<td><code>prompt key '...' must be bare (no dots)</code></td>
-<td>A YAML <code>prompt_key</code> contains a <code>.</code>.</td>
-<td>Use bare names; the <code>agent.</code> / <code>task.</code> prefix is added automatically.</td>
+<td>Prompt missing at <code>production</code> label, or Langfuse unreachable.</td>
+<td>Promote the prompt in the Langfuse UI; verify <code>LANGFUSE_*</code> env vars. Logs at WARNING level identify which.</td>
 </tr>
 <tr>
 <td><code>assert self.crew_version</code> fails</td>
-<td>Subclass missed setting <code>crew_version</code>.</td>
-<td>Add <code>crew_version = "1.0.0"</code> to the crew class.</td>
+<td>Crew subclass missed <code>crew_version = "..."</code> declaration.</td>
+<td>Add it.</td>
 </tr>
 <tr>
 <td>Datadog traces missing despite <code>DD_LLMOBS_ENABLED=1</code></td>
-<td><code>ddtrace</code> not installed, or <code>DD_API_KEY</code> missing.</td>
+<td><code>ddtrace</code> not installed or <code>DD_API_KEY</code> missing.</td>
 <td><code>pip install -r requirements.txt</code>; verify Datadog env vars. The boolean <code>_DD_LLMOBS_ACTIVE</code> in <code>crew_app.py</code> reflects whether init succeeded.</td>
 </tr>
 <tr>
-<td>Streamlit cache-miss errors inside CrewAI's ThreadPoolExecutor</td>
-<td>Cached resources first resolved in a background thread.</td>
+<td>Streamlit cache-miss errors inside CrewAI's <code>ThreadPoolExecutor</code></td>
+<td>A cached resource was first resolved in a background thread.</td>
 <td><code>_run_flow</code> already pre-resolves <code>_get_langfuse()</code> and <code>_get_connectors()</code> in the main thread; do not move that resolution.</td>
 </tr>
 <tr>
-<td><code>npx skills add ...</code> reinstalls flatly under <code>.agents/skills/&lt;name&gt;/</code></td>
-<td>The <code>skills</code> CLI does not know about the per-vendor subfolder layout.</td>
-<td>Manually move into <code>.agents/skills/&lt;vendor&gt;/</code> and re-point the Junction at <code>.claude/skills/&lt;name&gt;</code>. See <code>.agents/README.md</code>.</td>
+<td>Edits to <code>core/</code>, <code>crews/</code>, or <code>flows/</code> don't take effect</td>
+<td>Streamlit hot-reload doesn't refresh already-imported modules.</td>
+<td>Ctrl-C and re-run <code>streamlit run crew_app.py</code>.</td>
+</tr>
+<tr>
+<td><code>_namespaced ... must be bare (no dots)</code> ValueError</td>
+<td>A YAML <code>prompt_key</code> contains a <code>.</code>.</td>
+<td>Use bare keys; the loader prefixes <code>agent.</code> / <code>task.</code> automatically.</td>
+</tr>
+<tr>
+<td><code>npx skills add ...</code> reinstalls flat under <code>.agents/skills/&lt;name&gt;/</code></td>
+<td>The <code>skills</code> CLI doesn't know about per-vendor subfolders.</td>
+<td>Move into <code>.agents/skills/&lt;vendor&gt;/</code> and re-point the Junction at <code>.claude/skills/&lt;name&gt;</code>. See <code>.agents/README.md</code>.</td>
+</tr>
+<tr>
+<td>Seeder crashes with <code>UnicodeEncodeError</code> on Windows</td>
+<td>(Should be fixed.) Earlier versions used Unicode glyphs in <code>print()</code>.</td>
+<td>Pull the latest; the seeder now emits ASCII <code>[OK]</code> / <code>[FAIL]</code>.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="86-day-to-day-workflow"><a class="toclink" href="#86-day-to-day-workflow">8.6 Day-to-day workflow</a></h3>
 <ul>
-<li><strong>Edit an agent or task prompt:</strong> Langfuse UI → save the <code>agent.&lt;name&gt;</code>
-  or <code>task.&lt;name&gt;</code> prompt → promote to <code>production</code>. No deploy needed.</li>
-<li><strong>Add an agent to a crew:</strong> edit YAML + bump that crew's <code>crew_version</code>.</li>
-<li><strong>Change a task instruction:</strong> edit it in Langfuse (preferred — no deploy).
-  Or edit the <code>fallback:</code> block of <code>tasks/&lt;name&gt;.yaml</code> if you want the
-  default-in-version-control to change too (no <code>crew_version</code> bump unless
-  wiring changes).</li>
-<li><strong>Change task wiring</strong> (agent assignment, tools, context, output schema,
-  async, retries, ...): edit <code>tasks/&lt;name&gt;.yaml</code> at the top level (outside
-  the <code>fallback:</code> block) and bump <code>crew_version</code>.</li>
-<li><strong>Change a Flow's topology or state model</strong> (<code>@start</code>/<code>@listen</code>/<code>@router</code>
-  edits, state fields, swapping which crew it kicks off, post-processing):
-  bump the Flow class's <code>flow_version</code>. Do <strong>not</strong> bump <code>crew_version</code> —
-  that's a separate axis.</li>
-<li><strong>Add a new crew:</strong> see <a href="#7-extension-points">§7 Extension Points</a>.</li>
-<li><strong>Update skill packs (for AI coding agents):</strong> <code>npx skills update</code>. Re-group
-  under <code>.agents/skills/&lt;vendor&gt;/</code> if new skills landed flatly.</li>
+<li><strong>Edit a prompt</strong> → Langfuse UI → save → promote to <code>production</code>. No deploy. Cache TTL applies.</li>
+<li><strong>Add an agent to a crew</strong> → new agent YAML + edit <code>_agent_yaml_names</code> + bump that crew's <code>crew_version</code>. Re-seed.</li>
+<li><strong>Add a task field (e.g. <code>tools</code>)</strong> → edit the task YAML, add the key alongside <code>agent:</code>. No code change. Bump <code>crew_version</code> because wiring changed.</li>
+<li><strong>Change flow state shape</strong> → edit the Pydantic state model, bump <code>flow_version</code>. <code>crew_version</code> does <em>not</em> change unless the crew also changed.</li>
+<li><strong>Add a new crew</strong> → see §7.</li>
 </ul>
 <hr>
-<h2 id="9-related-docs"><a class="toclink" href="#9-related-docs">9. Related Docs</a></h2>
+<h2 id="9-related-documents-pointers"><a class="toclink" href="#9-related-documents-pointers">9. Related Documents &amp; Pointers</a></h2>
 <ul>
-<li><code>.agents/README.md</code> — Skill-pack layout &amp; how teammates restore via
-  <code>npx skills experimental_install</code>.</li>
-<li><code>core/prompts/loader.py</code> (module docstring) — Langfuse prompt setup details.</li>
-<li><code>crew_app.py</code> (module docstring) — quick-reference of required env + run command.</li>
-<li><code>crews/base.py</code> (<code>BaseCrew.crew_version</code> comment) — rules for when to bump.</li>
+<li><code>.agents/README.md</code> — AI-coding-agent skill packs (CrewAI + Langfuse), layout convention, and how teammates restore via <code>npx skills experimental_install</code>.</li>
+<li><code>core/prompts/loader.py</code> module docstring — Langfuse prompt setup details.</li>
+<li><code>crew_app.py</code> module docstring — quick-reference for required env + the run command.</li>
+<li><code>crews/base.py</code> — <code>BaseCrew.crew_version</code> comment, <code>_AGENT_LLM_TEXT_FIELDS</code> / <code>_TASK_LLM_TEXT_FIELDS</code> / <code>_TASK_RESERVED_KEYS</code> constants, and the <code>_namespaced</code> invariant.</li>
+<li><code>flows/&lt;name&gt;_flow.py</code> — <code>flow_version</code> bump rules, codified inline above each declaration.</li>
+<li><code>core/observability/context/enriched.py</code> — the comment in <code>_merged_metadata</code> explaining the Langfuse reverse-display coupling.</li>
 </ul>
 </main>
 </body>
