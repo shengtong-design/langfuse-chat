@@ -26,7 +26,8 @@ Langfuse prompt setup:
     never collide on the same key:
       * Agents → "agent.<name>"   e.g. "agent.researcher"
       * Tasks  → "task.<name>"    e.g. "task.research_task"
-    YAML keys stay bare (`agent_name: researcher`, `prompt_key: research_task`);
+    YAML keys stay bare (both concepts use `prompt_key`: e.g.
+    `prompt_key: researcher` for agents, `prompt_key: research_task` for tasks);
     the prefix is added by the per-concept loader. Extend the same pattern
     for future concepts (crew., tool., knowledge.).
   - Add a Config dict:

@@ -125,7 +125,7 @@ class BaseCrew(ABC):
         agents: Dict[str, Agent] = {}
         prompts: Dict[str, PromptResult] = {}
         for name, spec in agent_specs.items():
-            prompt_key = spec.get("agent_name") or name
+            prompt_key = spec.get("prompt_key") or name
             langfuse_name = _namespaced(_AGENT_PROMPT_NAMESPACE, prompt_key, source=f"agents/{name}.yaml")
             fallback = spec.get("fallback", {}) or {}
             prompt = loader.get(langfuse_name, fallback=fallback)

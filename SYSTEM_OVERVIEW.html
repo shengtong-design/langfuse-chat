@@ -317,8 +317,8 @@ prompt — those are already captured per-run in <code>agents_signature</code> a
 <h3 id="42-agent-configurable-behavior"><a class="toclink" href="#42-agent-configurable-behavior">4.2 Agent (configurable behavior)</a></h3>
 <p>An agent is two things layered:</p>
 <ul>
-<li><strong>YAML in <code>agents/&lt;name&gt;.yaml</code></strong> — wiring: <code>agent_name</code> (the bare key the
-  Langfuse prompt resolves under, namespaced to <code>agent.&lt;name&gt;</code> at lookup
+<li><strong>YAML in <code>agents/&lt;name&gt;.yaml</code></strong> — wiring: <code>prompt_key</code> (the bare key the
+  Langfuse prompt resolves under, namespaced to <code>agent.&lt;key&gt;</code> at lookup
   time), <code>verbose</code>, <code>allow_delegation</code>, and a <code>fallback</code> dict with <code>role</code>,
   <code>goal</code>, <code>backstory</code>. Wiring keys never reach Langfuse.</li>
 <li><strong>Langfuse prompt</strong> named <code>agent.&lt;name&gt;</code> (production label) — runtime
@@ -376,7 +376,7 @@ loader (<code>_load_agents</code>, <code>_load_tasks</code>) before the <code>Pr
 <tbody>
 <tr>
 <td>Agent</td>
-<td><code>agent_name</code></td>
+<td><code>prompt_key</code></td>
 <td><code>researcher</code></td>
 <td><code>agent.researcher</code></td>
 </tr>
@@ -750,7 +750,7 @@ model_defaults:
 <h2 id="7-extension-points"><a class="toclink" href="#7-extension-points">7. Extension Points</a></h2>
 <h3 id="add-a-new-crew"><a class="toclink" href="#add-a-new-crew">Add a new crew</a></h3>
 <ol>
-<li><strong>Agent YAML</strong> — create <code>agents/&lt;agent&gt;.yaml</code> with <code>agent_name</code>, <code>fallback</code>
+<li><strong>Agent YAML</strong> — create <code>agents/&lt;agent&gt;.yaml</code> with <code>prompt_key</code>, <code>fallback</code>
    dict (role/goal/backstory).</li>
 <li><strong>Task YAML(s)</strong> — create <code>tasks/&lt;task&gt;.yaml</code> with <code>task_name</code>, <code>agent</code>,
    <code>prompt_key</code>, and a <code>fallback</code> block (<code>description</code>, <code>expected_output</code>).
@@ -767,7 +767,7 @@ model_defaults:
        @property
        def _task_yaml_names(self): return ["my_task.yaml"]</code></li>
 <li><strong>Flow</strong> — <code>flows/&lt;name&gt;_flow.py</code> mirroring <code>ResearchFlow</code>.</li>
-<li><strong>Langfuse prompts</strong> — create one prompt per agent (<code>agent.&lt;agent_name&gt;</code>)
+<li><strong>Langfuse prompts</strong> — create one prompt per agent (<code>agent.&lt;prompt_key&gt;</code>)
    and one per task (<code>task.&lt;prompt_key&gt;</code>), labeled <code>production</code>. Easiest:
    run <code>python scripts/seed_prompts.py</code> which walks both YAML directories.
    Without these, the YAML fallback is used.</li>
@@ -980,7 +980,7 @@ in the Langfuse UI to preserve history, or re-seed for a fresh start.</p>
 </tr>
 <tr>
 <td><code>prompt key '...' must be bare (no dots)</code></td>
-<td>A YAML <code>agent_name</code> or <code>prompt_key</code> contains a <code>.</code>.</td>
+<td>A YAML <code>prompt_key</code> contains a <code>.</code>.</td>
 <td>Use bare names; the <code>agent.</code> / <code>task.</code> prefix is added automatically.</td>
 </tr>
 <tr>

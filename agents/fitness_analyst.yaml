@@ -1,4 +1,4 @@
-agent_name: fitness_analyst
+prompt_key: fitness_analyst
 verbose: true
 allow_delegation: false
 fallback:

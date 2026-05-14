@@ -178,8 +178,8 @@ prompt — those are already captured per-run in `agents_signature` and
 
 An agent is two things layered:
 
-- **YAML in `agents/<name>.yaml`** — wiring: `agent_name` (the bare key the
-  Langfuse prompt resolves under, namespaced to `agent.<name>` at lookup
+- **YAML in `agents/<name>.yaml`** — wiring: `prompt_key` (the bare key the
+  Langfuse prompt resolves under, namespaced to `agent.<key>` at lookup
   time), `verbose`, `allow_delegation`, and a `fallback` dict with `role`,
   `goal`, `backstory`. Wiring keys never reach Langfuse.
 - **Langfuse prompt** named `agent.<name>` (production label) — runtime
@@ -237,7 +237,7 @@ loader (`_load_agents`, `_load_tasks`) before the `PromptLoader.get()` call:
 
 | Concept | YAML field   | Bare key                | Langfuse name              |
 |---------|--------------|-------------------------|----------------------------|
-| Agent   | `agent_name` | `researcher`            | `agent.researcher`         |
+| Agent   | `prompt_key` | `researcher`            | `agent.researcher`         |
 | Task    | `prompt_key` | `research_task`         | `task.research_task`       |
 
 A bare key containing `.` raises with a clear error pointing at the YAML
@@ -450,7 +450,7 @@ The file is selected by `ENVIRONMENT` (default `dev`). Cached after first read.
 
 ### Add a new crew
 
-1. **Agent YAML** — create `agents/<agent>.yaml` with `agent_name`, `fallback`
+1. **Agent YAML** — create `agents/<agent>.yaml` with `prompt_key`, `fallback`
    dict (role/goal/backstory).
 2. **Task YAML(s)** — create `tasks/<task>.yaml` with `task_name`, `agent`,
    `prompt_key`, and a `fallback` block (`description`, `expected_output`).
@@ -468,7 +468,7 @@ The file is selected by `ENVIRONMENT` (default `dev`). Cached after first read.
        def _task_yaml_names(self): return ["my_task.yaml"]
    ```
 4. **Flow** — `flows/<name>_flow.py` mirroring `ResearchFlow`.
-5. **Langfuse prompts** — create one prompt per agent (`agent.<agent_name>`)
+5. **Langfuse prompts** — create one prompt per agent (`agent.<prompt_key>`)
    and one per task (`task.<prompt_key>`), labeled `production`. Easiest:
    run `python scripts/seed_prompts.py` which walks both YAML directories.
    Without these, the YAML fallback is used.
@@ -634,7 +634,7 @@ Recommended bucketing:
 | **Prompt sources** panel shows yellow "YAML fallback" warnings | Langfuse prompt not found at `production` label, or Langfuse unreachable. | Promote the prompt in Langfuse UI, or run `python scripts/seed_prompts.py`. Logs at WARNING level identify which. |
 | Yellow warnings after upgrading to namespaced prompts (`agent.X` / `task.X`) | Existing Langfuse prompts still under their old un-prefixed names. | Rename them in the Langfuse UI (preserves history) or re-seed via `scripts/seed_prompts.py`. |
 | `task YAML ... missing required key(s) 'agent' or 'fallback'` | Task YAML still in pre-split shape (description at top level). | Move `description` / `expected_output` into a `fallback:` block; add `prompt_key`. |
-| `prompt key '...' must be bare (no dots)` | A YAML `agent_name` or `prompt_key` contains a `.`. | Use bare names; the `agent.` / `task.` prefix is added automatically. |
+| `prompt key '...' must be bare (no dots)` | A YAML `prompt_key` contains a `.`. | Use bare names; the `agent.` / `task.` prefix is added automatically. |
 | `assert self.crew_version` fails | Subclass missed setting `crew_version`. | Add `crew_version = "1.0.0"` to the crew class. |
 | Datadog traces missing despite `DD_LLMOBS_ENABLED=1` | `ddtrace` not installed, or `DD_API_KEY` missing. | `pip install -r requirements.txt`; verify Datadog env vars. The boolean `_DD_LLMOBS_ACTIVE` in `crew_app.py` reflects whether init succeeded. |
 | Streamlit cache-miss errors inside CrewAI's ThreadPoolExecutor | Cached resources first resolved in a background thread. | `_run_flow` already pre-resolves `_get_langfuse()` and `_get_connectors()` in the main thread; do not move that resolution. |

@@ -88,7 +88,7 @@ def _collect(
 def seed() -> None:
     prompts = []
     prompts.extend(_collect(
-        _AGENTS_DIR, _AGENT_PROMPT_NAMESPACE, "agent_name",
+        _AGENTS_DIR, _AGENT_PROMPT_NAMESPACE, "prompt_key",
         _AGENT_LLM_TEXT_FIELDS, prompt_body_field="backstory",
     ))
     prompts.extend(_collect(
