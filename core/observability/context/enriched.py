@@ -58,14 +58,14 @@ class EnrichedConnectorManager:
         return self._callbacks
 
     def _merged_metadata(self, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        # Sort the merged dict alphabetically so the trace metadata has a stable
-        # global key order. RunContext.as_metadata() and _build_prompt_meta()
-        # each sort their own output, but concatenating them here would otherwise
-        # produce three locally-sorted blocks rather than one globally-sorted dict.
+        # Emit in reverse-alphabetical insertion order so the Langfuse UI, which
+        # renders dict keys in reverse-insertion order, displays them forward
+        # alphabetically. This couples us to a Langfuse rendering quirk — if
+        # they ever switch to insertion-order display, flip `reverse` here.
         merged = self._ctx.as_metadata()
         if metadata:
             merged.update(metadata)
-        return dict(sorted(merged.items()))
+        return dict(sorted(merged.items(), reverse=True))
 
     @contextmanager
     def span(
