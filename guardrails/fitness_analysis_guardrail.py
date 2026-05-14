@@ -20,15 +20,23 @@ builder's annotation still documents the contract for readers.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, Tuple
 
 from crewai.tasks.task_output import TaskOutput
 
+# (label, regex). Label is shown in the rejection message; regex is matched
+# (case-insensitively, via the lowercased output) to detect the section.
+# Patterns allow a few words between the anchor terms so headings like
+# "Assessment of Current Fitness State" satisfy the "current state" group.
 _REQUIRED_MARKERS = (
-    ("current state", "state assessment"),
-    ("goal",),
-    ("focus",),
-    ("challenge", "recommendation"),
+    (
+        "current state",
+        re.compile(r"current\s+(?:\w+\s+){0,3}state|state\s+(?:\w+\s+){0,3}assessment"),
+    ),
+    ("goal", re.compile(r"\bgoal")),
+    ("focus", re.compile(r"\bfocus")),
+    ("challenge/recommendation", re.compile(r"\bchallenge|\brecommendation")),
 )
 
 _MIN_LENGTH = 300
@@ -45,7 +53,7 @@ def build_fitness_analysis_guardrail(
                 f"Fitness profile is too short ({len(text)} chars); expected at "
                 f"least {_MIN_LENGTH}. Expand each section with concrete detail.",
             )
-        missing = [group[0] for group in _REQUIRED_MARKERS if not any(m in text for m in group)]
+        missing = [label for label, pattern in _REQUIRED_MARKERS if not pattern.search(text)]
         if missing:
             return (
                 False,
