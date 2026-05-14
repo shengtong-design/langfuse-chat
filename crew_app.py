@@ -29,7 +29,11 @@ from __future__ import annotations
 import logging
 import os
 
-os.environ.setdefault("CREWAI_TELEMETRY_OPT_OUT", "true")
+# CrewAI 1.14.x telemetry opt-out — checks CREWAI_DISABLE_TELEMETRY (and
+# OTEL_SDK_DISABLED) at import time. The legacy CREWAI_TELEMETRY_OPT_OUT name
+# from earlier versions is silently ignored, which is how we ended up with
+# "telemetry.crewai.com: Connection refused" log noise on Streamlit Cloud.
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
 try:
     from dotenv import load_dotenv
