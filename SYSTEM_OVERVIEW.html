@@ -65,20 +65,42 @@ pre code {
   font-size: 12.5px;
 }
 table {
-  border-collapse: collapse;
-  margin: .8em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1em 0;
   display: block;
   overflow-x: auto;
   max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 th, td {
-  border: 1px solid var(--border);
-  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
   text-align: left;
   vertical-align: top;
 }
-th { background: var(--code-bg); font-weight: 600; }
+th + th, td + td { border-left: 1px solid var(--border); }
+th {
+  background: var(--code-bg);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+tr:last-child td { border-bottom: 0; }
 tr:nth-child(even) td { background: var(--table-stripe); }
+tbody tr:hover td { background: #eaf5ff; }
+.mermaid {
+  margin: 1em 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: center;
+  overflow-x: auto;
+}
+.mermaid svg { max-width: 100%; height: auto; }
 blockquote {
   margin: .8em 0;
   padding: 0 1em;
@@ -109,11 +131,11 @@ orchestration is CrewAI Flows; tracing fans out through a thin connector layer
 so backends are plug-in.</p>
 <ul>
 <li><strong>Runtime:</strong> Python 3.12 (<code>runtime.txt</code>)</li>
-<li><strong>App version:</strong> see <code>VERSION</code> (<code>1.0.0</code>)</li>
+<li><strong>App version:</strong> see <code>VERSION</code></li>
 <li><strong>Entry point:</strong> <code>crew_app.py</code> (<code>py -3.12 -m streamlit run crew_app.py</code>)</li>
-<li><strong>Frameworks:</strong> CrewAI <code>1.14.4</code>, Streamlit <code>≥1.30</code>, Langfuse <code>≥4.0</code>,
-  Pydantic <code>≥2.11</code>, OpenAI SDK <code>≥2.30</code></li>
-<li><strong>Optional integrations:</strong> Datadog LLM Observability (<code>ddtrace ≥2.0</code>)</li>
+<li><strong>Frameworks:</strong> CrewAI, Streamlit, Langfuse, Pydantic, OpenAI SDK
+  — pins live in <code>requirements.txt</code>.</li>
+<li><strong>Optional integrations:</strong> Datadog LLM Observability (<code>ddtrace</code>)</li>
 </ul>
 <hr>
 <h2 id="1-design-tenets"><a class="toclink" href="#1-design-tenets">1. Design Tenets</a></h2>
@@ -634,7 +656,7 @@ by <code>EnrichedConnectorManager</code>. <code>core/observability/context/run_c
 <ul>
 <li><code>as_metadata()</code> — flat dict for trace/span metadata (drops empty values).</li>
 <li><code>as_tags()</code> — list of <code>key:value</code> strings for Langfuse trace tags (e.g.
-  <code>env:dev</code>, <code>crew:researcher</code>, <code>flow:researcher</code>, <code>version:1.0.0</code>,
+  <code>env:dev</code>, <code>crew:researcher</code>, <code>flow:researcher</code>, <code>version:&lt;app-semver&gt;</code>,
   <code>sha:&lt;8-char-prefix&gt;</code>).</li>
 <li><code>as_dd_tags()</code> — flat dict for Datadog tag annotation (with the SHA
   truncated to 8 chars).</li>
@@ -706,37 +728,56 @@ to insertion-order display, flip the <code>reverse</code> flag (one line, in
 flow / crew / agent / task — every other section in this doc is structural
 and stable; this one is the concrete snapshot.</p>
 <h3 id="51-topology"><a class="toclink" href="#51-topology">5.1 Topology</a></h3>
-<pre><code>ResearchFlow                          [flows/research_flow.py]
-  flow_name      = &quot;researcher&quot;
-  flow_version   = &quot;1.0.0&quot;
-  state          = ResearchState(question, result, prompt_versions,
-                                 stdout, stderr)
-  └─ ResearchCrew                     [crews/research_crew.py]
-       crew_name    = &quot;crewai.researcher&quot;
-       crew_version = &quot;1.0.0&quot;
-       └─ researcher  ──&gt;  research_task
-            (agent.researcher)        (task.research_task)
+<div class="mermaid">
+flowchart TB
+    classDef flowNode fill:#fff3e0,stroke:#e65100,color:#3e2723;
+    classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
+    classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
+    classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
 
+    subgraph RP["Research pipeline"]
+        direction TB
+        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode
+        RC["ResearchCrew<br/><i>crew_name = crewai.researcher</i>"]:::crewNode
+        Rr["researcher<br/><i>agent.researcher</i>"]:::agentNode
+        Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
+        RF --> RC
+        RC --> Rr
+        Rr --> Rt
+    end
 
-FitnessFlow                           [flows/fitness_flow.py]
-  flow_name      = &quot;fitness_training&quot;
-  flow_version   = &quot;1.0.0&quot;
-  state          = FitnessState(goals, fitness_level, equipment,
-                                 time_per_week, limitations,
-                                 result, prompt_versions,
-                                 stdout, stderr)
-  └─ FitnessCrew                      [crews/fitness_crew.py]
-       crew_name    = &quot;crewai.fitness_training&quot;
-       crew_version = &quot;1.0.0&quot;
-       ├─ fitness_analyst    ──&gt;  fitness_analysis_task
-       │    (agent.fitness_analyst)   (task.fitness_analysis_task)
-       ├─ workout_designer   ──&gt;  fitness_workout_task
-       │    (agent.workout_designer)  (task.fitness_workout_task)
-       └─ nutrition_advisor  ──&gt;  fitness_nutrition_task
-            (agent.nutrition_advisor) (task.fitness_nutrition_task)
-       _format_result: joins 3 markdown sections
-         (## Fitness Profile Analysis, ## Workout Program, ## Nutrition Plan)
-</code></pre>
+    subgraph FP["Fitness pipeline"]
+        direction TB
+        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode
+        FC["FitnessCrew<br/><i>crew_name = crewai.fitness_training</i>"]:::crewNode
+        Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
+        Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
+        Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
+        Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
+        Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
+        Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
+        FF --> FC
+        FC --> Fa
+        FC --> Fw
+        FC --> Fn
+        Fa --> Fat
+        Fw --> Fwt
+        Fn --> Fnt
+    end
+</div>
+
+<p>Notes on the diagram:</p>
+<ul>
+<li>Solid edges are <em>contains / drives</em>: a Flow contains a Crew; a Crew contains
+  agents; an agent owns its task.</li>
+<li>The Langfuse prompt name (<code>agent.&lt;key&gt;</code>, <code>task.&lt;key&gt;</code>) is shown italic under
+  each agent/task — that's the name to look for in Langfuse → Prompts.</li>
+<li><code>FitnessCrew._format_result</code> joins three markdown sections in the order
+  shown: <em>## Fitness Profile Analysis</em>, <em>## Workout Program</em>, <em>## Nutrition Plan</em>.</li>
+<li>Concrete <code>crew_version</code> / <code>flow_version</code> values are intentionally not in the
+  diagram (they drift). Read them off <code>Crew.crew_version</code> / <code>Flow.flow_version</code>
+  in code, or filter on them in Langfuse trace metadata.</li>
+</ul>
 <h3 id="52-flows"><a class="toclink" href="#52-flows">5.2 Flows</a></h3>
 <table>
 <thead>
@@ -891,9 +932,9 @@ re-publish the YAML fallback as a fresh Langfuse version.</p>
             └─ ResearchFlow.run_research()           [@start()]
                  ├─ make_run_context(
                  │       crew_name=&quot;researcher&quot;,
-                 │       crew_version=ResearchCrew.crew_version,    # e.g. &quot;1.0.0&quot;
-                 │       flow_name=self.flow_name,                  # &quot;researcher&quot;
-                 │       flow_version=self.flow_version,            # &quot;1.0.0&quot;
+                 │       crew_version=ResearchCrew.crew_version,
+                 │       flow_name=self.flow_name,
+                 │       flow_version=self.flow_version,
                  │   )                                              → RunContext
                  ├─ EnrichedConnectorManager(connectors, ctx)
                  └─ ResearchCrew().run(inputs, obs)
@@ -1352,5 +1393,9 @@ hot-reloads the <em>script body</em> but not already-imported modules.</p>
 <li><code>core/observability/context/enriched.py</code> — the comment in <code>_merged_metadata</code> explaining the Langfuse reverse-display coupling.</li>
 </ul>
 </main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+</script>
 </body>
 </html>

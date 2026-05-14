@@ -8,11 +8,11 @@ orchestration is CrewAI Flows; tracing fans out through a thin connector layer
 so backends are plug-in.
 
 - **Runtime:** Python 3.12 (`runtime.txt`)
-- **App version:** see `VERSION` (`1.0.0`)
+- **App version:** see `VERSION`
 - **Entry point:** `crew_app.py` (`py -3.12 -m streamlit run crew_app.py`)
-- **Frameworks:** CrewAI `1.14.4`, Streamlit `≥1.30`, Langfuse `≥4.0`,
-  Pydantic `≥2.11`, OpenAI SDK `≥2.30`
-- **Optional integrations:** Datadog LLM Observability (`ddtrace ≥2.0`)
+- **Frameworks:** CrewAI, Streamlit, Langfuse, Pydantic, OpenAI SDK
+  — pins live in `requirements.txt`.
+- **Optional integrations:** Datadog LLM Observability (`ddtrace`)
 
 ---
 
@@ -376,7 +376,7 @@ Three projections used by connectors:
 
 - `as_metadata()` — flat dict for trace/span metadata (drops empty values).
 - `as_tags()` — list of `key:value` strings for Langfuse trace tags (e.g.
-  `env:dev`, `crew:researcher`, `flow:researcher`, `version:1.0.0`,
+  `env:dev`, `crew:researcher`, `flow:researcher`, `version:<app-semver>`,
   `sha:<8-char-prefix>`).
 - `as_dd_tags()` — flat dict for Datadog tag annotation (with the SHA
   truncated to 8 chars).
@@ -429,38 +429,55 @@ and stable; this one is the concrete snapshot.
 
 ### 5.1 Topology
 
-```
-ResearchFlow                          [flows/research_flow.py]
-  flow_name      = "researcher"
-  flow_version   = "1.0.0"
-  state          = ResearchState(question, result, prompt_versions,
-                                 stdout, stderr)
-  └─ ResearchCrew                     [crews/research_crew.py]
-       crew_name    = "crewai.researcher"
-       crew_version = "1.0.0"
-       └─ researcher  ──>  research_task
-            (agent.researcher)        (task.research_task)
+```mermaid
+flowchart TB
+    classDef flowNode fill:#fff3e0,stroke:#e65100,color:#3e2723;
+    classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
+    classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
+    classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
 
+    subgraph RP["Research pipeline"]
+        direction TB
+        RF["ResearchFlow<br/><i>flow_name = researcher</i>"]:::flowNode
+        RC["ResearchCrew<br/><i>crew_name = crewai.researcher</i>"]:::crewNode
+        Rr["researcher<br/><i>agent.researcher</i>"]:::agentNode
+        Rt["research_task<br/><i>task.research_task</i>"]:::taskNode
+        RF --> RC
+        RC --> Rr
+        Rr --> Rt
+    end
 
-FitnessFlow                           [flows/fitness_flow.py]
-  flow_name      = "fitness_training"
-  flow_version   = "1.0.0"
-  state          = FitnessState(goals, fitness_level, equipment,
-                                 time_per_week, limitations,
-                                 result, prompt_versions,
-                                 stdout, stderr)
-  └─ FitnessCrew                      [crews/fitness_crew.py]
-       crew_name    = "crewai.fitness_training"
-       crew_version = "1.0.0"
-       ├─ fitness_analyst    ──>  fitness_analysis_task
-       │    (agent.fitness_analyst)   (task.fitness_analysis_task)
-       ├─ workout_designer   ──>  fitness_workout_task
-       │    (agent.workout_designer)  (task.fitness_workout_task)
-       └─ nutrition_advisor  ──>  fitness_nutrition_task
-            (agent.nutrition_advisor) (task.fitness_nutrition_task)
-       _format_result: joins 3 markdown sections
-         (## Fitness Profile Analysis, ## Workout Program, ## Nutrition Plan)
+    subgraph FP["Fitness pipeline"]
+        direction TB
+        FF["FitnessFlow<br/><i>flow_name = fitness_training</i>"]:::flowNode
+        FC["FitnessCrew<br/><i>crew_name = crewai.fitness_training</i>"]:::crewNode
+        Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
+        Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
+        Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
+        Fat["fitness_analysis_task<br/><i>task.fitness_analysis_task</i>"]:::taskNode
+        Fwt["fitness_workout_task<br/><i>task.fitness_workout_task</i>"]:::taskNode
+        Fnt["fitness_nutrition_task<br/><i>task.fitness_nutrition_task</i>"]:::taskNode
+        FF --> FC
+        FC --> Fa
+        FC --> Fw
+        FC --> Fn
+        Fa --> Fat
+        Fw --> Fwt
+        Fn --> Fnt
+    end
 ```
+
+Notes on the diagram:
+
+- Solid edges are *contains / drives*: a Flow contains a Crew; a Crew contains
+  agents; an agent owns its task.
+- The Langfuse prompt name (`agent.<key>`, `task.<key>`) is shown italic under
+  each agent/task — that's the name to look for in Langfuse → Prompts.
+- `FitnessCrew._format_result` joins three markdown sections in the order
+  shown: *## Fitness Profile Analysis*, *## Workout Program*, *## Nutrition Plan*.
+- Concrete `crew_version` / `flow_version` values are intentionally not in the
+  diagram (they drift). Read them off `Crew.crew_version` / `Flow.flow_version`
+  in code, or filter on them in Langfuse trace metadata.
 
 ### 5.2 Flows
 
@@ -521,9 +538,9 @@ crew_app.py
             └─ ResearchFlow.run_research()           [@start()]
                  ├─ make_run_context(
                  │       crew_name="researcher",
-                 │       crew_version=ResearchCrew.crew_version,    # e.g. "1.0.0"
-                 │       flow_name=self.flow_name,                  # "researcher"
-                 │       flow_version=self.flow_version,            # "1.0.0"
+                 │       crew_version=ResearchCrew.crew_version,
+                 │       flow_name=self.flow_name,
+                 │       flow_version=self.flow_version,
                  │   )                                              → RunContext
                  ├─ EnrichedConnectorManager(connectors, ctx)
                  └─ ResearchCrew().run(inputs, obs)

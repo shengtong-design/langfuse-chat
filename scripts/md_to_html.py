@@ -4,9 +4,13 @@ Usage:
     py -3.12 scripts/md_to_html.py [INPUT.md] [OUTPUT.html]
 
 Defaults to SYSTEM_OVERVIEW.md → SYSTEM_OVERVIEW.html at the repo root.
+
+Renders ```mermaid fenced blocks as live diagrams via the mermaid.js CDN
+(requires internet on first load to fetch the library; cached thereafter).
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -75,20 +79,42 @@ pre code {
   font-size: 12.5px;
 }
 table {
-  border-collapse: collapse;
-  margin: .8em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1em 0;
   display: block;
   overflow-x: auto;
   max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 th, td {
-  border: 1px solid var(--border);
-  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
   text-align: left;
   vertical-align: top;
 }
-th { background: var(--code-bg); font-weight: 600; }
+th + th, td + td { border-left: 1px solid var(--border); }
+th {
+  background: var(--code-bg);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+tr:last-child td { border-bottom: 0; }
 tr:nth-child(even) td { background: var(--table-stripe); }
+tbody tr:hover td { background: #eaf5ff; }
+.mermaid {
+  margin: 1em 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: center;
+  overflow-x: auto;
+}
+.mermaid svg { max-width: 100%; height: auto; }
 blockquote {
   margin: .8em 0;
   padding: 0 1em;
@@ -120,13 +146,38 @@ HTML_TEMPLATE = """<!doctype html>
 <main>
 {body}
 </main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({{ startOnLoad: true, theme: 'default', securityLevel: 'loose' }});
+</script>
 </body>
 </html>
 """
 
 
+_MERMAID_BLOCK = re.compile(
+    r"^```mermaid\s*\n(.*?)^```\s*$",
+    re.DOTALL | re.MULTILINE,
+)
+
+
+def _extract_mermaid(md_text: str) -> str:
+    """Replace ```mermaid blocks with raw <div class="mermaid"> HTML.
+
+    Python-markdown passes block-level raw HTML through unchanged, so the
+    mermaid source survives the markdown parser and the inline script in the
+    HTML template renders the diagram client-side.
+    """
+    def _sub(match: re.Match) -> str:
+        # Surround with blank lines so Markdown treats the div as a block,
+        # not an inline span inside the next paragraph.
+        return f'\n\n<div class="mermaid">\n{match.group(1)}</div>\n\n'
+    return _MERMAID_BLOCK.sub(_sub, md_text)
+
+
 def render(src: Path, dst: Path) -> None:
     md_text = src.read_text(encoding="utf-8")
+    md_text = _extract_mermaid(md_text)
     body = markdown.markdown(
         md_text,
         extensions=["fenced_code", "tables", "toc", "sane_lists"],
