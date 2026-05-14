@@ -79,8 +79,14 @@ trace back to one of them.
 
 ### YAML inventory (for §5 tables)
 
-- `agents/*.yaml` — verify `prompt_key`, `fallback.role`.
+- `agents/*.yaml` — verify `prompt_key`, `fallback.role`, optional `tools:` list.
 - `tasks/*.yaml` — verify `task_name`, `agent`, `prompt_key`, `fallback`.
+
+### Tools inventory (for §5.7)
+
+- `tools/__init__.py` — `TOOL_BUILDERS` registry (key → builder(inputs) → BaseTool).
+- `tools/*_tool.py` — one `BaseTool` subclass per file; verify `name`,
+  `description`, declared instance fields used by the builder.
 
 ---
 
@@ -92,7 +98,7 @@ trace back to one of them.
 | 2 | Architecture at a Glance | Mermaid `flowchart TB`. |
 | 3 | Project Layout | Mermaid `flowchart LR` (imports) + ASCII file tree. |
 | 4 | Core Concepts | Ten subsections, see below. |
-| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + four tables. |
+| 5 | Component Inventory | Mermaid `flowchart LR` (topology) + five tables (Crews, Agents, Tasks, Langfuse prompts, Tools). |
 | 6 | Runtime Sequence | Mermaid `sequenceDiagram` (one worked example). |
 | 7 | Configuration | Tables (env vars + env files). |
 | 8 | Extension Points | Numbered procedures. |
@@ -151,6 +157,7 @@ trace back to one of them.
 | Crew | `#e8f5e9` | `#1b5e20` |
 | Agent | `#e3f2fd` | `#0d47a1` |
 | Task | `#f3e5f5` | `#4a148c` |
+| Tool | `#fff8e1` | `#f57f17` |
 | PromptLoader | `#fce4ec` | `#880e4f` |
 | Observability | `#e0f2f1` | `#004d40` |
 | External / data store | `#fafafa`, dashed `#616161` |
@@ -172,9 +179,11 @@ trace back to one of them.
   relationships; **solid arrows** for control/data flow.
 - Subgraphs for natural groupings (per-pipeline, per-layer).
 - For §5.1 specifically: the task chain is the SOLID horizontal path; the
-  task-to-agent ownership is a DASHED "performed by" edge. CrewAI defaults to
-  `Process.sequential` and prior task outputs auto-flow as implicit context —
-  show this with edge labels like `task 2 + ctx of task 1`.
+  task-to-agent ownership is a DASHED "performed by" edge; an agent's
+  available tools are DASHED "uses" edges from the agent to each Tool
+  node. CrewAI defaults to `Process.sequential` and prior task outputs
+  auto-flow as implicit context — show this with edge labels like
+  `task 2 + ctx of task 1`.
 
 ---
 
@@ -220,7 +229,7 @@ grep -n -E "1\.0\.0|≥[0-9]|[0-9]+\.[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
 
 # 2. Section numbers contiguous.
 grep -n -E "^##\s+[0-9]+\.|^###\s+[0-9]+\.[0-9]+" SYSTEM_OVERVIEW.md
-# Expect: 1, 2, ..., 10 with subsections 4.1-4.10, 5.1-5.6, 9.1-9.6.
+# Expect: 1, 2, ..., 10 with subsections 4.1-4.10, 5.1-5.7, 9.1-9.6.
 
 # 3. Cross-references resolve.
 grep -n -E "see §?[0-9]+(\.[0-9]+)?" SYSTEM_OVERVIEW.md
@@ -235,7 +244,8 @@ grep -c 'class="mermaid"' SYSTEM_OVERVIEW.html
 # 6. Smoke-test imports still work.
 py -3.12 -c "import crews.base, crews.research_crew, crews.fitness_crew, \
             flows.research_flow, flows.fitness_flow, \
-            core.observability, core.observability.context, core.prompts"
+            core.observability, core.observability.context, core.prompts, \
+            tools"
 ```
 
 Then open `SYSTEM_OVERVIEW.html` in a browser and confirm every Mermaid block
@@ -250,7 +260,7 @@ renders (no red "Syntax error in text" boxes).
 | Design tenet | §1 row. |
 | Runtime layer (e.g. a tools registry) | §2 diagram + a new §4 subsection. |
 | Top-level directory | §3 imports diagram + file tree. |
-| Flow / crew / agent / task | §5 inventory (diagram + relevant table). |
+| Flow / crew / agent / task / **tool** | §5 inventory (diagram + relevant table). When adding a tool, update §5.1 diagram (Tool node + dashed "uses" edge), §5.3 "Tools wired" column, §5.4 "Tools" column, and §5.7 row. |
 | Core concept | §4 subsection (renumber subsequent if inserted before §4.10). |
 | Step in `BaseCrew.run` | §6 sequence diagram. |
 | Env var | §7 table. |
@@ -265,6 +275,8 @@ renders (no red "Syntax error in text" boxes).
 - The 10-section model was established in commit `4bf18c2` (full rewrite).
 - Diagrams converted to Mermaid in `65221f5`, `897e68f`.
 - §5.1 topology corrected to show task chain + performed-by edges in `f15d438`.
+- §5.7 Tools subsection added (with dashed "uses" edges in §5.1, "Tools"
+  columns in §5.3 and §5.4) when the `tools/` package shipped.
 - The single-source-of-truth metadata sort lives in
   `core/observability/context/enriched.py` (`_merged_metadata`).
 - Bump-rule comments live next to the ClassVar declarations they govern, not

@@ -234,6 +234,7 @@ flowchart LR
     APP["crew_app.py"]:::app
     FLOWS["flows/"]:::domain
     CREWS["crews/"]:::domain
+    TOOLS["tools/"]:::domain
     PROMPTS["core/prompts/"]:::domain
     OBS["core/observability/"]:::domain
     AGENTS_DIR["agents/"]:::config
@@ -247,6 +248,7 @@ flowchart LR
     FLOWS --> OBS
     CREWS --> PROMPTS
     CREWS --> OBS
+    CREWS --> TOOLS
     CREWS -.reads.-> AGENTS_DIR
     CREWS -.reads.-> TASKS_DIR
     OBS -.reads.-> CONFIG_DIR
@@ -285,6 +287,10 @@ flowchart LR
 │   ├── fitness_analysis_task.yaml  + optional **wiring keys forwarded to Task()
 │   ├── fitness_workout_task.yaml
 │   └── fitness_nutrition_task.yaml
+│
+├── tools/                          ← CrewAI BaseTool implementations + registry
+│   ├── __init__.py                   TOOL_BUILDERS: key → builder(inputs) → BaseTool
+│   └── health_report_reader_tool.py  HealthReportReaderTool (.txt/.md/.pdf)
 │
 ├── core/
 │   ├── prompts/
@@ -772,6 +778,7 @@ flowchart LR
     classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
     classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
+    classDef toolNode fill:#fff8e1,stroke:#f57f17,color:#3e2723;
 
     subgraph RP["Research pipeline"]
         direction LR
@@ -790,9 +797,11 @@ flowchart LR
         Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
         Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
+        HRR["health_report_reader<br/><i>HealthReportReaderTool</i>"]:::toolNode
         Fat -.performed by.-> Fa
         Fwt -.performed by.-> Fw
         Fnt -.performed by.-> Fn
+        Fa -.uses.-> HRR
     end
 </div>
 
@@ -804,6 +813,11 @@ flowchart LR
   <code>Process.sequential</code> passes (the prior task's output, accumulated).</li>
 <li><strong>Dashed "performed by" edges</strong> point from each task to the agent that
   executes it. One agent per task (CrewAI requirement in sequential mode).</li>
+<li><strong>Dashed "uses" edges</strong> point from an agent to each <code>BaseTool</code> instance
+  in its <code>tools=[...]</code> list. Tools are wired in code/YAML and instantiated
+  per run by <code>tools.TOOL_BUILDERS[&lt;key&gt;](inputs)</code>; they never appear in
+  Langfuse-managed prompt text. The agent decides <em>when</em> to call a tool;
+  the diagram only shows <em>which</em> tool is available to whom.</li>
 <li>Agents are siblings inside the Crew, not chained — they don't talk to each
   other directly; they only communicate via task outputs.</li>
 <li>The Langfuse prompt name (<code>agent.&lt;key&gt;</code>, <code>task.&lt;key&gt;</code>) is shown italic
@@ -854,6 +868,7 @@ flowchart LR
 <th><code>crew_name</code></th>
 <th>Agents (in order)</th>
 <th>Tasks (in execution order)</th>
+<th>Tools wired (via agents)</th>
 <th><code>_format_result</code></th>
 </tr>
 </thead>
@@ -863,6 +878,7 @@ flowchart LR
 <td><code>crewai.researcher</code></td>
 <td><code>researcher</code></td>
 <td><code>research</code></td>
+<td>—</td>
 <td>default — <code>str(crew_result)</code></td>
 </tr>
 <tr>
@@ -870,6 +886,7 @@ flowchart LR
 <td><code>crewai.fitness_training</code></td>
 <td><code>fitness_analyst</code>, <code>workout_designer</code>, <code>nutrition_advisor</code></td>
 <td><code>analysis</code>, <code>workout</code>, <code>nutrition</code></td>
+<td><code>health_report_reader</code> (on <code>fitness_analyst</code>)</td>
 <td>custom — joins 3 markdown sections</td>
 </tr>
 </tbody>
@@ -881,6 +898,7 @@ flowchart LR
 <th>YAML</th>
 <th><code>prompt_key</code> (→ Langfuse <code>agent.&lt;key&gt;</code>)</th>
 <th>Fallback role</th>
+<th>Tools (YAML <code>tools:</code> keys)</th>
 <th>Used by</th>
 </tr>
 </thead>
@@ -889,24 +907,28 @@ flowchart LR
 <td><code>agents/researcher.yaml</code></td>
 <td><code>researcher</code></td>
 <td>Researcher</td>
+<td>—</td>
 <td><code>ResearchCrew</code></td>
 </tr>
 <tr>
 <td><code>agents/fitness_analyst.yaml</code></td>
 <td><code>fitness_analyst</code></td>
 <td>Fitness Analyst</td>
+<td><code>health_report_reader</code></td>
 <td><code>FitnessCrew</code></td>
 </tr>
 <tr>
 <td><code>agents/workout_designer.yaml</code></td>
 <td><code>workout_designer</code></td>
 <td>Workout Program Designer</td>
+<td>—</td>
 <td><code>FitnessCrew</code></td>
 </tr>
 <tr>
 <td><code>agents/nutrition_advisor.yaml</code></td>
 <td><code>nutrition_advisor</code></td>
 <td>Nutrition Advisor</td>
+<td>—</td>
 <td><code>FitnessCrew</code></td>
 </tr>
 </tbody>
@@ -964,6 +986,37 @@ agent.nutrition_advisor       task.fitness_nutrition_task
 <p>The seeder is name-idempotent: re-running creates a <em>new version</em> on each
 existing prompt (the <code>production</code> label floats to the newest). Use it to
 re-publish the YAML fallback as a fresh Langfuse version.</p>
+<h3 id="57-tools"><a class="toclink" href="#57-tools">5.7 Tools</a></h3>
+<p>Tools are CrewAI <code>BaseTool</code> subclasses, registered in
+<code>tools/__init__.py:TOOL_BUILDERS</code> and referenced by string key in each
+agent's YAML under <code>tools:</code>. Wiring stays entirely in code/YAML — tools
+never resolve from Langfuse, so an LLM-text edit can never re-route or
+swap them. Builders receive the run's <code>inputs</code> dict and return a
+freshly-constructed instance per run, so per-run state (uploaded paths,
+user-scoped credentials) flows through cleanly.</p>
+<table>
+<thead>
+<tr>
+<th>Registry key</th>
+<th>File</th>
+<th>Class</th>
+<th>Per-run input consumed</th>
+<th>Wired to (agent)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>health_report_reader</code></td>
+<td><code>tools/health_report_reader_tool.py</code></td>
+<td><code>HealthReportReaderTool</code></td>
+<td><code>inputs["health_report_path"]</code> (tempfile path; <code>.txt</code> / <code>.md</code> / <code>.pdf</code>)</td>
+<td><code>fitness_analyst</code></td>
+</tr>
+</tbody>
+</table>
+<p>Bump the owning <code>Crew.crew_version</code> whenever a crew's wired tool set
+changes (add / remove / swap a key in any of its agents' YAMLs) — the
+rule lives next to the ClassVar in <code>crews/base.py</code>.</p>
 <hr>
 <h2 id="6-runtime-sequence-one-research-run"><a class="toclink" href="#6-runtime-sequence-one-research-run">6. Runtime Sequence (one Research run)</a></h2>
 <div class="mermaid">
@@ -1249,6 +1302,35 @@ deploy, no recipe-version bump.</p>
 verbatim into <code>Task(**)</code>. Note: <code>context</code> (Task→Task dependency) and
 <code>output_pydantic</code> (<code>"module:Class"</code> style) need a resolver pass before raw
 passthrough is safe — add when needed.</p>
+<h3 id="add-a-tool"><a class="toclink" href="#add-a-tool">Add a tool</a></h3>
+<p>Tools are wiring, not LLM-text — they live entirely in code/YAML and never
+flow through Langfuse.</p>
+<ol>
+<li><strong>Implement</strong> the tool as a <code>crewai.tools.BaseTool</code> subclass in
+   <code>tools/&lt;name&gt;.py</code>. Per-run state (file paths, session-scoped credentials)
+   goes on the instance, bound at construction time.</li>
+<li><strong>Register</strong> it in <code>tools/__init__.py</code> under a unique snake_case key:
+   <code>python
+   TOOL_BUILDERS["my_tool"] = lambda inputs: MyTool(some_field=inputs.get("..."))</code>
+   The builder receives the run's <code>inputs</code> dict, so it can pull whatever
+   per-run state it needs from the Flow/UI without that state ever touching
+   a prompt template.</li>
+<li><strong>Attach</strong> the tool to one or more agents by adding the key to the agent's
+   YAML:
+   ```yaml
+   # agents/<agent>.yaml
+   tools:<ul>
+<li>my_tool
+   <code>``</code>BaseCrew._load_agents<code>resolves the list against</code>TOOL_BUILDERS<code>and
+   passes the instantiated tools to</code>Agent(tools=...)`.</li>
+</ul>
+</li>
+<li><strong>Mention</strong> the tool in the relevant task's prompt fallback (and the
+   matching Langfuse <code>task.&lt;key&gt;</code> prompt) so the agent knows when to call
+   it — only the LLM-text nudge belongs in Langfuse; the wiring stays here.</li>
+<li><strong>Bump <code>crew_version</code></strong> of any crew whose tool set changed — same rule as
+   adding/removing an agent (see <code>crews/base.py</code>).</li>
+</ol>
 <hr>
 <h2 id="9-user-instructions"><a class="toclink" href="#9-user-instructions">9. User Instructions</a></h2>
 <h3 id="91-first-time-setup"><a class="toclink" href="#91-first-time-setup">9.1 First-time setup</a></h3>

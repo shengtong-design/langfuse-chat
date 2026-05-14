@@ -480,6 +480,7 @@ flowchart LR
     classDef crewNode fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20;
     classDef agentNode fill:#e3f2fd,stroke:#0d47a1,color:#0d47a1;
     classDef taskNode fill:#f3e5f5,stroke:#4a148c,color:#4a148c;
+    classDef toolNode fill:#fff8e1,stroke:#f57f17,color:#3e2723;
 
     subgraph RP["Research pipeline"]
         direction LR
@@ -498,9 +499,11 @@ flowchart LR
         Fa["fitness_analyst<br/><i>agent.fitness_analyst</i>"]:::agentNode
         Fw["workout_designer<br/><i>agent.workout_designer</i>"]:::agentNode
         Fn["nutrition_advisor<br/><i>agent.nutrition_advisor</i>"]:::agentNode
+        HRR["health_report_reader<br/><i>HealthReportReaderTool</i>"]:::toolNode
         Fat -.performed by.-> Fa
         Fwt -.performed by.-> Fw
         Fnt -.performed by.-> Fn
+        Fa -.uses.-> HRR
     end
 ```
 
@@ -512,6 +515,11 @@ Reading the diagram:
   `Process.sequential` passes (the prior task's output, accumulated).
 - **Dashed "performed by" edges** point from each task to the agent that
   executes it. One agent per task (CrewAI requirement in sequential mode).
+- **Dashed "uses" edges** point from an agent to each `BaseTool` instance
+  in its `tools=[...]` list. Tools are wired in code/YAML and instantiated
+  per run by `tools.TOOL_BUILDERS[<key>](inputs)`; they never appear in
+  Langfuse-managed prompt text. The agent decides *when* to call a tool;
+  the diagram only shows *which* tool is available to whom.
 - Agents are siblings inside the Crew, not chained — they don't talk to each
   other directly; they only communicate via task outputs.
 - The Langfuse prompt name (`agent.<key>`, `task.<key>`) is shown italic
@@ -535,19 +543,19 @@ Reading the diagram:
 
 ### 5.3 Crews
 
-| Crew | `crew_name` | Agents (in order) | Tasks (in execution order) | `_format_result` |
-|---|---|---|---|---|
-| `ResearchCrew` | `crewai.researcher` | `researcher` | `research` | default — `str(crew_result)` |
-| `FitnessCrew` | `crewai.fitness_training` | `fitness_analyst`, `workout_designer`, `nutrition_advisor` | `analysis`, `workout`, `nutrition` | custom — joins 3 markdown sections |
+| Crew | `crew_name` | Agents (in order) | Tasks (in execution order) | Tools wired (via agents) | `_format_result` |
+|---|---|---|---|---|---|
+| `ResearchCrew` | `crewai.researcher` | `researcher` | `research` | — | default — `str(crew_result)` |
+| `FitnessCrew` | `crewai.fitness_training` | `fitness_analyst`, `workout_designer`, `nutrition_advisor` | `analysis`, `workout`, `nutrition` | `health_report_reader` (on `fitness_analyst`) | custom — joins 3 markdown sections |
 
 ### 5.4 Agents
 
-| YAML | `prompt_key` (→ Langfuse `agent.<key>`) | Fallback role | Used by |
-|---|---|---|---|
-| `agents/researcher.yaml` | `researcher` | Researcher | `ResearchCrew` |
-| `agents/fitness_analyst.yaml` | `fitness_analyst` | Fitness Analyst | `FitnessCrew` |
-| `agents/workout_designer.yaml` | `workout_designer` | Workout Program Designer | `FitnessCrew` |
-| `agents/nutrition_advisor.yaml` | `nutrition_advisor` | Nutrition Advisor | `FitnessCrew` |
+| YAML | `prompt_key` (→ Langfuse `agent.<key>`) | Fallback role | Tools (YAML `tools:` keys) | Used by |
+|---|---|---|---|---|
+| `agents/researcher.yaml` | `researcher` | Researcher | — | `ResearchCrew` |
+| `agents/fitness_analyst.yaml` | `fitness_analyst` | Fitness Analyst | `health_report_reader` | `FitnessCrew` |
+| `agents/workout_designer.yaml` | `workout_designer` | Workout Program Designer | — | `FitnessCrew` |
+| `agents/nutrition_advisor.yaml` | `nutrition_advisor` | Nutrition Advisor | — | `FitnessCrew` |
 
 ### 5.5 Tasks
 
@@ -573,6 +581,24 @@ agent.nutrition_advisor       task.fitness_nutrition_task
 The seeder is name-idempotent: re-running creates a *new version* on each
 existing prompt (the `production` label floats to the newest). Use it to
 re-publish the YAML fallback as a fresh Langfuse version.
+
+### 5.7 Tools
+
+Tools are CrewAI `BaseTool` subclasses, registered in
+`tools/__init__.py:TOOL_BUILDERS` and referenced by string key in each
+agent's YAML under `tools:`. Wiring stays entirely in code/YAML — tools
+never resolve from Langfuse, so an LLM-text edit can never re-route or
+swap them. Builders receive the run's `inputs` dict and return a
+freshly-constructed instance per run, so per-run state (uploaded paths,
+user-scoped credentials) flows through cleanly.
+
+| Registry key | File | Class | Per-run input consumed | Wired to (agent) |
+|---|---|---|---|---|
+| `health_report_reader` | `tools/health_report_reader_tool.py` | `HealthReportReaderTool` | `inputs["health_report_path"]` (tempfile path; `.txt` / `.md` / `.pdf`) | `fitness_analyst` |
+
+Bump the owning `Crew.crew_version` whenever a crew's wired tool set
+changes (add / remove / swap a key in any of its agents' YAMLs) — the
+rule lives next to the ClassVar in `crews/base.py`.
 
 ---
 
