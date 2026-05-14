@@ -9,6 +9,7 @@ from crewai import Agent, Crew, Task
 
 from core.observability.context.callbacks import get_crew_kwargs
 from core.prompts import PromptLoader, PromptResult
+from guardrails import GUARDRAIL_BUILDERS
 from tools import TOOL_BUILDERS
 from .common import kickoff_crew
 
@@ -26,10 +27,12 @@ _TASK_LLM_TEXT_FIELDS = ("description", "expected_output")
 
 # Reserved top-level YAML keys consumed by the loader. Anything outside this set
 # is forwarded to Task(**kwargs), so new CrewAI Task fields (context, tools,
-# async_execution, output_pydantic, output_file, guardrail, human_input,
-# callback, max_retries, markdown, config, ...) are zero-code to enable.
+# async_execution, output_pydantic, output_file, human_input, callback,
+# max_retries, markdown, config, ...) are zero-code to enable.
 # NOTE: 'context' and 'output_pydantic' need a resolver pass (name->Task and
 # "module:Class" import) before they can flow through raw — add when needed.
+# 'guardrail' is resolved against guardrails.GUARDRAIL_BUILDERS below (same
+# pattern as tools).
 _TASK_RESERVED_KEYS = frozenset({"task_name", "agent", "prompt_key", "fallback"})
 
 # Langfuse prompt namespace per CrewAI concept. The YAML key is kept bare and
@@ -188,6 +191,15 @@ class BaseCrew(ABC):
             expected_output = task_text.get("expected_output", "")
 
             wiring_kwargs = {k: v for k, v in spec.items() if k not in _TASK_RESERVED_KEYS}
+
+            guardrail_key = wiring_kwargs.get("guardrail")
+            if isinstance(guardrail_key, str):
+                if guardrail_key not in GUARDRAIL_BUILDERS:
+                    raise ValueError(
+                        f"task YAML {filename} references unknown guardrail key "
+                        f"{guardrail_key!r}; register it in guardrails/__init__.py:GUARDRAIL_BUILDERS"
+                    )
+                wiring_kwargs["guardrail"] = GUARDRAIL_BUILDERS[guardrail_key](inputs)
 
             tasks.append(Task(
                 description=description.format(**safe_inputs),
