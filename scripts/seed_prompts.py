@@ -107,19 +107,19 @@ def seed() -> None:
                 labels=[LABEL],
                 type="text",
             )
-            print(f"  ✓ {name}  →  version {result.version}")
+            print(f"  [OK]   {name}  ->  version {result.version}")
         except Exception as e:
-            print(f"  ✗ {name}  →  {e}")
+            print(f"  [FAIL] {name}  ->  {e}")
             traceback.print_exc()
             errors += 1
 
     client.flush()
 
     if errors:
-        print(f"\n⚠️  {errors} prompt(s) failed. Check credentials and retry.")
+        print(f"\n{errors} prompt(s) failed. Check credentials and retry.")
         sys.exit(1)
 
-    print("\nDone. Open Langfuse → Prompts to view and edit them.")
+    print("\nDone. Open Langfuse -> Prompts to view and edit them.")
     print(
         "To promote a new version: edit in Langfuse UI, then move the "
         f"'{LABEL}' label to the new version."
