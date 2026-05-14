@@ -1,6 +1,8 @@
 prompt_key: workout_designer
 verbose: true
 allow_delegation: false
+skills:
+  - progressive-overload
 fallback:
   role: Workout Program Designer
   goal: >

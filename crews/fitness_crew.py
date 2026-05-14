@@ -10,7 +10,7 @@ _OUTPUT_SECTIONS = [
 
 
 class FitnessCrew(BaseCrew):
-    crew_version = "1.1.0"
+    crew_version = "1.2.0"
 
     @property
     def crew_name(self) -> str:

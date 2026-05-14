@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Dict, List
 
 import yaml
 from crewai import Agent, Crew, Task
+from crewai.skills.loader import activate_skill, load_skill_metadata
 
 from core.observability.context.callbacks import get_crew_kwargs
 from core.prompts import PromptLoader, PromptResult
@@ -15,6 +16,7 @@ from .common import kickoff_crew
 
 _AGENTS_DIR = Path(__file__).parent.parent / "agents"
 _TASKS_DIR = Path(__file__).parent.parent / "tasks"
+_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 # Per-concept LLM-text field sets. Only these keys can be overridden by a
 # Langfuse-side edit; everything else stays code/YAML-only so wiring cannot
@@ -94,6 +96,8 @@ class BaseCrew(ABC):
     #   - _task_yaml_names changes (reorder, add, or remove a task)
     #   - _format_result semantics change
     #   - the wired tool set changes
+    #   - the wired skill set changes (any agent's skills: list)
+    #   - a task's guardrail wiring changes
     #   - an agent's or task's prompt key is renamed (different Langfuse prompt resolves)
     #   - task-YAML wiring changes (agent assignment, context, tools, output schema, ...)
     # Do NOT bump for a Langfuse-side edit to an existing agent's or task's
@@ -126,6 +130,12 @@ class BaseCrew(ABC):
         ``tools.TOOL_BUILDERS``; builders receive ``inputs`` so per-run state
         (e.g. uploaded file paths) can flow into tool construction without
         leaking through Langfuse-editable prompt text.
+
+        Each agent's ``skills:`` YAML list (optional) is resolved against
+        ``skills/<name>/`` directories at the repo root — CrewAI's
+        filesystem-based skill discovery (SKILL.md with YAML frontmatter +
+        markdown body). Skills inject prompt-level guidance; they are not
+        callable like tools.
         """
         agent_specs = {
             Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
@@ -149,9 +159,29 @@ class BaseCrew(ABC):
                         f"{tool_key!r}; register it in tools/__init__.py:TOOL_BUILDERS"
                     )
                 tools.append(TOOL_BUILDERS[tool_key](inputs))
+            # CrewAI's Agent(skills=[Path(...)]) calls discover_skills() which
+            # expects a PARENT dir containing skill subfolders, not a single
+            # skill folder. We want per-agent named selection (mirrors how
+            # tools: works in YAML), so we pre-load each named skill at
+            # INSTRUCTIONS disclosure level and pass the resolved Skill
+            # objects directly — set_skills() then accepts them as-is.
+            skills = []
+            for skill_name in spec.get("skills") or []:
+                skill_path = _SKILLS_DIR / skill_name
+                if not skill_path.is_dir():
+                    raise ValueError(
+                        f"agent YAML agents/{name}.yaml references unknown skill "
+                        f"{skill_name!r}; expected directory at {skill_path}"
+                    )
+                if not (skill_path / "SKILL.md").is_file():
+                    raise ValueError(
+                        f"skill directory {skill_path} is missing SKILL.md"
+                    )
+                skills.append(activate_skill(load_skill_metadata(skill_path)))
             agents[name] = Agent(
                 **agent_text,
                 tools=tools,
+                skills=skills or None,
                 verbose=spec.get("verbose", True),
                 allow_delegation=spec.get("allow_delegation", False),
             )
