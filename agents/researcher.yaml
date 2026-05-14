@@ -1,4 +1,4 @@
-agent_name: researcher
+prompt_key: researcher
 verbose: true
 allow_delegation: false
 # role/goal/backstory come from Langfuse at runtime.

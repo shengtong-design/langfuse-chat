@@ -1,4 +1,4 @@
-agent_name: nutrition_advisor
+prompt_key: nutrition_advisor
 verbose: true
 allow_delegation: false
 fallback:

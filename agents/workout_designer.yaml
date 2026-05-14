@@ -1,4 +1,4 @@
-agent_name: workout_designer
+prompt_key: workout_designer
 verbose: true
 allow_delegation: false
 fallback:
