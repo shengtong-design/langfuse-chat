@@ -2,9 +2,11 @@
 Seed Langfuse with initial prompt versions for all CrewAI concepts.
 
 Walks agents/*.yaml and tasks/*.yaml, namespaces each prompt
-(agent.<name>, task.<name>), and creates version 1 from the YAML fallback
-labeled "production". Idempotent re-runs create new versions on existing
-prompts; promote one by moving the label in the Langfuse UI.
+(agent.<name>, task.<name>), and creates a version from the YAML fallback
+labeled "production". Idempotent re-runs create a new version on each
+existing prompt; the "production" label auto-floats to that new version
+because Langfuse moves a label to the new version when create_prompt
+attaches a label that's already in use elsewhere on the same prompt.
 
 Run from project root:
   py -3.12 scripts/seed_prompts.py
@@ -121,8 +123,8 @@ def seed() -> None:
 
     print("\nDone. Open Langfuse -> Prompts to view and edit them.")
     print(
-        "To promote a new version: edit in Langfuse UI, then move the "
-        f"'{LABEL}' label to the new version."
+        f"The '{LABEL}' label was attached on create and now points at the "
+        "newest version of each prompt above."
     )
 
 
