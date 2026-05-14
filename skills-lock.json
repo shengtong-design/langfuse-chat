@@ -25,6 +25,12 @@
       "skillPath": "skills/getting-started/SKILL.md",
       "computedHash": "9a10e2f3c38b66b2c963815d1d0ee80e49b794da63a144a4d0c9609bc8275ce6"
     },
+    "graphify": {
+      "source": "howell5/willhong-skills",
+      "sourceType": "github",
+      "skillPath": "skills/graphify/SKILL.md",
+      "computedHash": "a6c23b455dc5985554fe94f956360c19d0d99a0962a919b082693c50b42e3843"
+    },
     "langfuse": {
       "source": "langfuse/skills",
       "sourceType": "github",

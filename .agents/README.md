@@ -14,6 +14,7 @@ framework or service.
     │   ├── design-agent/
     │   ├── design-task/
     │   └── getting-started/
+    ├── graphify/                ← single-skill vendor: kept at top level
     └── langfuse/                ← single-skill vendor: kept at top level
 ```
 
@@ -28,7 +29,12 @@ the vendor. Single-skill vendors stay flat for brevity.
 | `design-agent` | CrewAI | [crewaiinc/skills](https://github.com/crewaiinc/skills) |
 | `design-task` | CrewAI | [crewaiinc/skills](https://github.com/crewaiinc/skills) |
 | `getting-started` | CrewAI | [crewaiinc/skills](https://github.com/crewaiinc/skills) |
+| `graphify` | willhong-skills | [howell5/willhong-skills](https://github.com/howell5/willhong-skills) |
 | `langfuse` | Langfuse | [langfuse/skills](https://github.com/langfuse/skills) |
+
+The `graphify` skill needs its companion CLI installed once per machine
+(`npm i -g graphify-ts`) and a one-time `graphify build .` to produce
+`graphify-out/graph.json`. The CLI uses the Bun runtime under the hood.
 
 `skills-lock.json` at the repo root is the canonical record (vendor, commit
 hash, source path). This table is a human-friendly view; if they disagree, the
