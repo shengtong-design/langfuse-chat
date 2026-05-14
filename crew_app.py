@@ -51,7 +51,6 @@ def _init_datadog_llmobs() -> bool:
         return True
     try:
         os.environ.setdefault("DD_TRACE_ENABLED", "0")
-        import logging
         logging.getLogger("ddtrace").setLevel(logging.ERROR)
         from ddtrace.llmobs import LLMObs
         LLMObs.enable(

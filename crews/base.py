@@ -212,7 +212,7 @@ class BaseCrew(ABC):
         prompt_meta["tasks_signature"] = ",".join(
             f"{name}@{p.version}" for name, p in sorted(task_prompts.items())
         )
-        return dict(sorted(prompt_meta.items()))
+        return prompt_meta
 
     # ------------------------------------------------------------------
     # Public entry point
