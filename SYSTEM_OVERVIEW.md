@@ -93,6 +93,7 @@ flowchart LR
     APP["crew_app.py"]:::app
     FLOWS["flows/"]:::domain
     CREWS["crews/"]:::domain
+    TOOLS["tools/"]:::domain
     PROMPTS["core/prompts/"]:::domain
     OBS["core/observability/"]:::domain
     AGENTS_DIR["agents/"]:::config
@@ -106,6 +107,7 @@ flowchart LR
     FLOWS --> OBS
     CREWS --> PROMPTS
     CREWS --> OBS
+    CREWS --> TOOLS
     CREWS -.reads.-> AGENTS_DIR
     CREWS -.reads.-> TASKS_DIR
     OBS -.reads.-> CONFIG_DIR
@@ -146,6 +148,10 @@ langfuse-chat/
 │   ├── fitness_analysis_task.yaml  + optional **wiring keys forwarded to Task()
 │   ├── fitness_workout_task.yaml
 │   └── fitness_nutrition_task.yaml
+│
+├── tools/                          ← CrewAI BaseTool implementations + registry
+│   ├── __init__.py                   TOOL_BUILDERS: key → builder(inputs) → BaseTool
+│   └── health_report_reader_tool.py  HealthReportReaderTool (.txt/.md/.pdf)
 │
 ├── core/
 │   ├── prompts/
@@ -772,6 +778,36 @@ If CrewAI ships a new `Task(**)` kwarg (e.g. `human_input`, `markdown`,
 verbatim into `Task(**)`. Note: `context` (Task→Task dependency) and
 `output_pydantic` (`"module:Class"` style) need a resolver pass before raw
 passthrough is safe — add when needed.
+
+### Add a tool
+
+Tools are wiring, not LLM-text — they live entirely in code/YAML and never
+flow through Langfuse.
+
+1. **Implement** the tool as a `crewai.tools.BaseTool` subclass in
+   `tools/<name>.py`. Per-run state (file paths, session-scoped credentials)
+   goes on the instance, bound at construction time.
+2. **Register** it in `tools/__init__.py` under a unique snake_case key:
+   ```python
+   TOOL_BUILDERS["my_tool"] = lambda inputs: MyTool(some_field=inputs.get("..."))
+   ```
+   The builder receives the run's `inputs` dict, so it can pull whatever
+   per-run state it needs from the Flow/UI without that state ever touching
+   a prompt template.
+3. **Attach** the tool to one or more agents by adding the key to the agent's
+   YAML:
+   ```yaml
+   # agents/<agent>.yaml
+   tools:
+     - my_tool
+   ```
+   `BaseCrew._load_agents` resolves the list against `TOOL_BUILDERS` and
+   passes the instantiated tools to `Agent(tools=...)`.
+4. **Mention** the tool in the relevant task's prompt fallback (and the
+   matching Langfuse `task.<key>` prompt) so the agent knows when to call
+   it — only the LLM-text nudge belongs in Langfuse; the wiring stays here.
+5. **Bump `crew_version`** of any crew whose tool set changed — same rule as
+   adding/removing an agent (see `crews/base.py`).
 
 ---
 

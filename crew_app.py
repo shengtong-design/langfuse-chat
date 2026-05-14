@@ -69,7 +69,9 @@ def _init_datadog_llmobs() -> bool:
 
 _DD_LLMOBS_ACTIVE = _init_datadog_llmobs()
 
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 import streamlit as st
@@ -214,12 +216,24 @@ with tab_fitness:
             "Limitations / injuries (optional)",
             placeholder='e.g. "Minor lower back sensitivity"',
         )
+        health_report = st.file_uploader(
+            "Health report (optional)",
+            type=["txt", "md", "pdf"],
+            help="Upload a recent health report; the fitness analyst will read it via the health_report_reader tool.",
+        )
         fitness_btn = st.form_submit_button("Generate fitness plan", type="primary")
 
     if fitness_btn:
         if not goals.strip() or not equipment.strip():
             st.warning("Please fill in goals and available equipment.")
         else:
+            health_report_path = ""
+            if health_report is not None:
+                suffix = Path(health_report.name).suffix.lower() or ".bin"
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                tmp.write(health_report.getvalue())
+                tmp.close()
+                health_report_path = tmp.name
             try:
                 with st.spinner("Generating your personalized fitness plan (3 agents)..."):
                     data = _run_flow(FitnessFlow, {
@@ -228,10 +242,14 @@ with tab_fitness:
                         "equipment": equipment.strip(),
                         "time_per_week": time_per_week,
                         "limitations": limitations.strip() or "None specified",
+                        "health_report_path": health_report_path,
                     })
                 _show_output(data, heading="Your Personalized Fitness Plan", markdown=True)
             except Exception as e:
                 st.error(f"Failed: {e}")
+            finally:
+                if health_report_path:
+                    Path(health_report_path).unlink(missing_ok=True)
 
 # ── Experiments ───────────────────────────────────────────────────────────────
 with tab_experiment:

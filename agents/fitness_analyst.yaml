@@ -1,6 +1,8 @@
 prompt_key: fitness_analyst
 verbose: true
 allow_delegation: false
+tools:
+  - health_report_reader
 fallback:
   role: Fitness Analyst
   goal: >

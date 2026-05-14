@@ -9,6 +9,7 @@ from crewai import Agent, Crew, Task
 
 from core.observability.context.callbacks import get_crew_kwargs
 from core.prompts import PromptLoader, PromptResult
+from tools import TOOL_BUILDERS
 from .common import kickoff_crew
 
 _AGENTS_DIR = Path(__file__).parent.parent / "agents"
@@ -115,8 +116,14 @@ class BaseCrew(ABC):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _load_agents(self) -> tuple:
-        """Load agent YAMLs, fetch prompts, return (agents_dict, prompts_dict)."""
+    def _load_agents(self, inputs: Dict[str, Any]) -> tuple:
+        """Load agent YAMLs, fetch prompts, return (agents_dict, prompts_dict).
+
+        Each agent's ``tools:`` YAML list (optional) is resolved against
+        ``tools.TOOL_BUILDERS``; builders receive ``inputs`` so per-run state
+        (e.g. uploaded file paths) can flow into tool construction without
+        leaking through Langfuse-editable prompt text.
+        """
         agent_specs = {
             Path(n).stem: yaml.safe_load((_AGENTS_DIR / n).read_text())
             for n in self._agent_yaml_names
@@ -131,8 +138,17 @@ class BaseCrew(ABC):
             prompt = loader.get(langfuse_name, fallback=fallback)
             prompts[name] = prompt
             agent_text = _pull_llm_text(prompt.config, fallback, _AGENT_LLM_TEXT_FIELDS)
+            tools = []
+            for tool_key in spec.get("tools") or []:
+                if tool_key not in TOOL_BUILDERS:
+                    raise ValueError(
+                        f"agent YAML agents/{name}.yaml references unknown tool key "
+                        f"{tool_key!r}; register it in tools/__init__.py:TOOL_BUILDERS"
+                    )
+                tools.append(TOOL_BUILDERS[tool_key](inputs))
             agents[name] = Agent(
                 **agent_text,
+                tools=tools,
                 verbose=spec.get("verbose", True),
                 allow_delegation=spec.get("allow_delegation", False),
             )
@@ -220,7 +236,7 @@ class BaseCrew(ABC):
 
     def run(self, inputs: Dict[str, Any], obs: Any) -> Dict[str, Any]:
         assert self.crew_version, f"{type(self).__name__}.crew_version must be set"
-        agents, agent_prompts = self._load_agents()
+        agents, agent_prompts = self._load_agents(inputs)
         tasks, task_prompts = self._load_tasks(agents, inputs)
         crew = Crew(agents=list(agents.values()), tasks=tasks, verbose=True, **get_crew_kwargs(obs))
         prompt_meta = self._build_prompt_meta(agent_prompts, task_prompts)

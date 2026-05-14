@@ -15,6 +15,7 @@ class FitnessState(BaseModel):
     equipment: str = ""
     time_per_week: int = 5
     limitations: str = "None specified"
+    health_report_path: str = ""
     result: str = ""
     prompt_versions: Dict[str, str] = Field(default_factory=dict)
     stdout: str = ""
@@ -64,6 +65,7 @@ class FitnessFlow(Flow[FitnessState]):
                 "equipment": self.state.equipment,
                 "time_per_week": self.state.time_per_week,
                 "limitations": self.state.limitations,
+                "health_report_path": self.state.health_report_path,
             }
             obs = EnrichedConnectorManager(
                 self._connectors_factory(),

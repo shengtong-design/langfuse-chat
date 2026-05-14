@@ -13,8 +13,12 @@ fallback:
     - Time Available: {time_per_week} hours per week
     - Any Limitations: {limitations}
 
+    If the `health_report_reader` tool is available, call it once at the start
+    to retrieve the user's uploaded health report and incorporate any relevant
+    medical conditions, medications, or lab findings into your assessment.
+
     Create a comprehensive fitness profile that includes:
-    1. Assessment of current fitness state
+    1. Assessment of current fitness state (informed by the health report if provided)
     2. Realistic goal timeline
     3. Key areas to focus on
     4. Potential challenges and how to overcome them
