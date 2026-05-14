@@ -32,6 +32,18 @@ class FitnessFlow(Flow[FitnessState]):
     # Flow recipe semver. Bump when the flow body changes: topology
     # (@start/@listen/@router edits), state-model fields, which crew(s) it
     # orchestrates, or post-processing. Independent of FitnessCrew.crew_version.
+    # Flow recipe version. Semver string, bumped manually via PR. Distinct from
+    # crew_version (the inner recipe), agents_signature/tasks_signature (per-run
+    # prompt resolution), and app_version (the deployment).
+    #
+    # Bump when:
+    #   - @start / @listen / @router topology changes
+    #   - State model fields change (add/remove/rename)
+    #   - Which crew(s) this flow orchestrates changes
+    #   - Post-processing semantics change (how flow state is populated from crew output)
+    # Do NOT bump for:
+    #   - A change inside the crew (that's crew_version)
+    #   - A Langfuse-side prompt edit (that's agents_signature / tasks_signature)
     flow_version: ClassVar[str] = "1.0.0"
     flow_name: ClassVar[str] = "fitness_training"
 
