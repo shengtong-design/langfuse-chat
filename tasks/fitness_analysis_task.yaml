@@ -1,7 +1,7 @@
 task_name: analysis
 agent: fitness_analyst
 prompt_key: fitness_analysis_task
-guardrail: fitness_analysis
+guardrail: fitness_analysis_guardrail
 
 # description/expected_output come from Langfuse at runtime.
 # fallback is used only when Langfuse is unreachable.
