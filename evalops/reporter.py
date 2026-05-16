@@ -21,6 +21,7 @@ from evalops.metric_config import (
     get as get_metric_config,
 )
 from evalops.promotion_gate import decide as gate_decide
+from evalops.regression import RegressionReport
 from evalops.scorer import aggregate, group_by_trace
 
 PER_ITEM_PREVIEW_LIMIT = 30
@@ -31,16 +32,20 @@ def generate_report(
     scores: list[dict[str, Any]],
     reports_dir: Path,
     trace_labels: dict[str, str] | None = None,
+    regression: RegressionReport | None = None,
 ) -> Path:
     """Render a Markdown report for the run; return the written file path.
 
-    `trace_labels` (optional) maps trace_id -> human-readable label (e.g. the
-    dataset item's question). Sections 8 and 9 fall back to the truncated
-    trace_id when a trace has no label.
+    `trace_labels` (optional) maps trace_id -> human-readable label.
+    `regression` (optional) is the comparison vs the most recent prior
+    production run for the same crew + dataset — drives Section 10.
     """
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"{manifest.experiment_name}.md"
-    path.write_text(_render(manifest, scores, trace_labels or {}), encoding="utf-8")
+    path.write_text(
+        _render(manifest, scores, trace_labels or {}, regression),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -48,6 +53,7 @@ def _render(
     manifest: ExperimentManifest,
     scores: list[dict[str, Any]],
     trace_labels: dict[str, str],
+    regression: RegressionReport | None,
 ) -> str:
     aggregates = aggregate(scores)
     by_trace = group_by_trace(scores)
@@ -67,7 +73,7 @@ def _render(
     parts.append(_section_7_aggregates(aggregates))
     parts.append(_section_8_per_item(by_trace, trace_labels))
     parts.append(_section_9_failures(failures, trace_labels))
-    parts.append(_section_10_regression())
+    parts.append(_section_10_regression(regression))
     parts.append(_section_11_cost_latency())
     parts.append(_section_12_recommendation(aggregates, scores))
 
@@ -240,11 +246,36 @@ def _section_9_failures(
     return "\n".join(lines) + "\n"
 
 
-def _section_10_regression() -> str:
-    return (
-        "## 10. Regression analysis\n\n"
-        "_Pending P3 — compares aggregates against the previous `production`-label run for the same crew + dataset._\n"
+def _section_10_regression(regression: RegressionReport | None) -> str:
+    lines = ["## 10. Regression analysis\n"]
+    if regression is None:
+        lines.append("_No prior `production` run found for this crew + dataset — no baseline to compare against._")
+        return "\n".join(lines) + "\n"
+    lines.append(
+        f"Baseline: `{regression.baseline_experiment}` ({regression.baseline_started_at}).  "
+        f"Tolerance: ±{regression.tolerance:.2f}.\n"
     )
+    lines.append("| Metric | Baseline | Current | Δ | Verdict |")
+    lines.append("|---|---:|---:|---:|---|")
+    for d in regression.deltas:
+        sign = "+" if d.delta > 0 else ("" if d.delta == 0 else "")
+        delta_str = f"{sign}{d.delta:+.3f}".replace("++", "+")
+        if d.is_regression:
+            verdict = "⚠️ regression"
+        elif d.is_improvement:
+            verdict = "✅ improvement"
+        else:
+            verdict = "≈ within tolerance"
+        lines.append(
+            f"| {d.name} {_direction_arrow(d.direction)} "
+            f"| {d.baseline_mean:.3f} "
+            f"| {d.current_mean:.3f} "
+            f"| {delta_str} "
+            f"| {verdict} |"
+        )
+    if regression.has_regression:
+        lines.append("\n_At least one metric crossed the regression tolerance._")
+    return "\n".join(lines) + "\n"
 
 
 def _section_11_cost_latency() -> str:

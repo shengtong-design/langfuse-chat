@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-RUNNER_VERSION = "evalops-0.2.0"
-SCHEMA_VERSION = "1.0"
+RUNNER_VERSION = "evalops-0.3.0"
+SCHEMA_VERSION = "1.1"
 
 
 @dataclass
@@ -54,6 +54,7 @@ class ExperimentManifest:
     deployment_sha: str | None = None
     runner_version: str = RUNNER_VERSION
     metrics_requested: list[str] = field(default_factory=list)
+    aggregates: dict[str, dict[str, float]] = field(default_factory=dict)
 
     @classmethod
     def start(cls, experiment_name: str) -> "ExperimentManifest":
