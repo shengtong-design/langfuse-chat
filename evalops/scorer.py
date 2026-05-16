@@ -19,6 +19,75 @@ import requests
 
 DEFAULT_WAIT_SECONDS = 60
 DEFAULT_PAGE_LIMIT = 100
+TRACE_LABEL_MAX_LEN = 60
+_TRACE_LABEL_KEYS = ("question", "query", "prompt", "message", "text", "input")
+
+
+def fetch_trace_inputs(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    trace_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch trace bodies (input/output/metadata) for the given trace IDs.
+
+    Returns {trace_id: trace_body}. Failed fetches are skipped silently.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for tid in {t for t in trace_ids if t}:
+        try:
+            resp = requests.get(
+                f"{base_url.rstrip('/')}/api/public/traces/{tid}",
+                auth=(public_key, secret_key),
+                timeout=20,
+            )
+            if resp.ok:
+                out[tid] = resp.json()
+        except requests.RequestException:
+            continue
+    return out
+
+
+def trace_label(trace_body: dict[str, Any], max_len: int = TRACE_LABEL_MAX_LEN) -> str:
+    """Pull a short human-readable label out of a trace body's input."""
+    inp = trace_body.get("input")
+    candidate: str | None = None
+    if isinstance(inp, dict):
+        for key in _TRACE_LABEL_KEYS:
+            v = inp.get(key)
+            if isinstance(v, str) and v.strip():
+                candidate = v
+                break
+        if candidate is None:
+            candidate = str(inp)
+    elif isinstance(inp, str):
+        candidate = inp
+    elif inp is not None:
+        candidate = str(inp)
+    if not candidate:
+        return ""
+    candidate = candidate.strip().replace("\r", " ").replace("\n", " ")
+    if len(candidate) > max_len:
+        candidate = candidate[: max_len - 1].rstrip() + "…"
+    return candidate
+
+
+def build_trace_labels(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    trace_ids: list[str],
+) -> dict[str, str]:
+    """Convenience: fetch trace inputs and return {trace_id: short_label}."""
+    bodies = fetch_trace_inputs(
+        base_url=base_url,
+        public_key=public_key,
+        secret_key=secret_key,
+        trace_ids=trace_ids,
+    )
+    return {tid: trace_label(body) for tid, body in bodies.items()}
 
 
 def fetch_scores(

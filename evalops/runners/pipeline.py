@@ -25,7 +25,7 @@ from evalops.crew_runner import get_flow_class, make_task
 from evalops.dataset_loader import load_dataset_items
 from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest, FlowRef
 from evalops.reporter import generate_report
-from evalops.scorer import wait_then_fetch
+from evalops.scorer import build_trace_labels, wait_then_fetch
 
 
 @dataclass(frozen=True)
@@ -111,9 +111,22 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         wait_seconds=config.wait_seconds,
     )
 
+    trace_ids = sorted({s.get("traceId") for s in scores if s.get("traceId")})
+    trace_labels = build_trace_labels(
+        base_url=base_url,
+        public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+        secret_key=os.environ["LANGFUSE_SECRET_KEY"],
+        trace_ids=trace_ids,
+    )
+
     manifest.finish()
     manifest_path = manifest.save(_PROJECT_ROOT / "evalops" / "manifests")
-    report_path = generate_report(manifest, scores, _PROJECT_ROOT / "evalops" / "reports")
+    report_path = generate_report(
+        manifest,
+        scores,
+        _PROJECT_ROOT / "evalops" / "reports",
+        trace_labels=trace_labels,
+    )
 
     return PipelineResult(
         experiment_name=experiment_name,

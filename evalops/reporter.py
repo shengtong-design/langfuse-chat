@@ -30,15 +30,25 @@ def generate_report(
     manifest: ExperimentManifest,
     scores: list[dict[str, Any]],
     reports_dir: Path,
+    trace_labels: dict[str, str] | None = None,
 ) -> Path:
-    """Render a Markdown report for the run; return the written file path."""
+    """Render a Markdown report for the run; return the written file path.
+
+    `trace_labels` (optional) maps trace_id -> human-readable label (e.g. the
+    dataset item's question). Sections 8 and 9 fall back to the truncated
+    trace_id when a trace has no label.
+    """
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"{manifest.experiment_name}.md"
-    path.write_text(_render(manifest, scores), encoding="utf-8")
+    path.write_text(_render(manifest, scores, trace_labels or {}), encoding="utf-8")
     return path
 
 
-def _render(manifest: ExperimentManifest, scores: list[dict[str, Any]]) -> str:
+def _render(
+    manifest: ExperimentManifest,
+    scores: list[dict[str, Any]],
+    trace_labels: dict[str, str],
+) -> str:
     aggregates = aggregate(scores)
     by_trace = group_by_trace(scores)
     failures = _find_failures(scores)
@@ -55,13 +65,21 @@ def _render(manifest: ExperimentManifest, scores: list[dict[str, Any]]) -> str:
     parts.append(_section_5_prompts(manifest))
     parts.append(_section_6_metric_defs(aggregates))
     parts.append(_section_7_aggregates(aggregates))
-    parts.append(_section_8_per_item(by_trace))
-    parts.append(_section_9_failures(failures))
+    parts.append(_section_8_per_item(by_trace, trace_labels))
+    parts.append(_section_9_failures(failures, trace_labels))
     parts.append(_section_10_regression())
     parts.append(_section_11_cost_latency())
     parts.append(_section_12_recommendation(aggregates, scores))
 
     return "\n".join(parts)
+
+
+def _format_item(tid: str, trace_labels: dict[str, str]) -> str:
+    label = (trace_labels.get(tid) or "").strip()
+    if label:
+        safe = label.replace("|", "\\|")
+        return f"{safe} `{tid[:8]}`"
+    return f"`{tid[:12]}…`"
 
 
 def _direction_arrow(direction: str) -> str:
@@ -169,43 +187,54 @@ def _section_7_aggregates(aggregates: dict[str, dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _section_8_per_item(by_trace: dict[str, dict[str, float]]) -> str:
+def _section_8_per_item(
+    by_trace: dict[str, dict[str, float]],
+    trace_labels: dict[str, str],
+) -> str:
     lines = ["## 8. Per-item results\n"]
     if not by_trace:
         lines.append("_No per-trace scores collected._")
         return "\n".join(lines) + "\n"
     metric_names = sorted({m for t in by_trace.values() for m in t})
     header_metrics = " | ".join(f"{m} {_direction_arrow(get_metric_config(m).direction)}" for m in metric_names)
-    header = "| trace_id | " + header_metrics + " |"
+    header = "| Item | " + header_metrics + " |"
     sep = "|---|" + "|".join(["---:"] * len(metric_names)) + "|"
     lines.append(header)
     lines.append(sep)
-    trace_ids = sorted(by_trace.keys())
+
+    def _trace_sort_key(tid: str) -> tuple[int, str]:
+        label = trace_labels.get(tid, "")
+        return (0, label) if label else (1, tid)
+
+    trace_ids = sorted(by_trace.keys(), key=_trace_sort_key)
     for tid in trace_ids[:PER_ITEM_PREVIEW_LIMIT]:
         row = by_trace[tid]
         cells = [f"{row[m]:.3f}" if m in row else "—" for m in metric_names]
-        lines.append(f"| `{tid[:12]}…` | " + " | ".join(cells) + " |")
+        lines.append(f"| {_format_item(tid, trace_labels)} | " + " | ".join(cells) + " |")
     if len(trace_ids) > PER_ITEM_PREVIEW_LIMIT:
         lines.append(f"\n_{len(trace_ids) - PER_ITEM_PREVIEW_LIMIT} more rows omitted from preview._")
     return "\n".join(lines) + "\n"
 
 
-def _section_9_failures(failures: list[dict[str, Any]]) -> str:
+def _section_9_failures(
+    failures: list[dict[str, Any]],
+    trace_labels: dict[str, str],
+) -> str:
     lines = ["## 9. Failure examples\n"]
     lines.append("_Failure: score crosses the metric's direction-specific threshold (see Section 6)._\n")
     if not failures:
         lines.append("None.")
         return "\n".join(lines) + "\n"
     failures_sorted = sorted(failures, key=lambda f: (f.get("name") or "", f.get("traceId") or ""))
-    lines.append("| trace_id | metric | value | comment |")
+    lines.append("| Item | metric | value | comment |")
     lines.append("|---|---|---:|---|")
     for f in failures_sorted[:PER_ITEM_PREVIEW_LIMIT]:
-        tid = (f.get("traceId") or "")[:12]
+        tid = f.get("traceId") or ""
         name = f.get("name", "")
         val = f.get("value")
         comment = (f.get("comment") or "").replace("|", "\\|").replace("\n", " ")[:120]
         val_str = f"{float(val):.3f}" if val is not None else "—"
-        lines.append(f"| `{tid}…` | {name} | {val_str} | {comment} |")
+        lines.append(f"| {_format_item(tid, trace_labels)} | {name} | {val_str} | {comment} |")
     if len(failures_sorted) > PER_ITEM_PREVIEW_LIMIT:
         lines.append(f"\n_{len(failures_sorted) - PER_ITEM_PREVIEW_LIMIT} more failures omitted from preview._")
     return "\n".join(lines) + "\n"
