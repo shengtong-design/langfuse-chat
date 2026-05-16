@@ -90,6 +90,42 @@ def build_trace_labels(
     return {tid: trace_label(body) for tid, body in bodies.items()}
 
 
+def trace_output_text(trace_body: dict[str, Any]) -> str:
+    """Extract the trace's output as a plain string, best-effort."""
+    out = trace_body.get("output")
+    if out is None:
+        return ""
+    if isinstance(out, dict):
+        for key in ("result", "answer", "output", "content", "text", "message"):
+            v = out.get(key)
+            if isinstance(v, str) and v.strip():
+                return v
+        return str(out)
+    if isinstance(out, str):
+        return out
+    return str(out)
+
+
+def build_trace_bodies(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    trace_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch trace bodies once; caller derives labels + outputs as needed.
+
+    Use this when you need both label + actual_output (or other fields) for
+    the same set of traces — avoids re-fetching.
+    """
+    return fetch_trace_inputs(
+        base_url=base_url,
+        public_key=public_key,
+        secret_key=secret_key,
+        trace_ids=trace_ids,
+    )
+
+
 def fetch_scores(
     *,
     base_url: str,

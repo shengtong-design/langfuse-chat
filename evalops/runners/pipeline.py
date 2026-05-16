@@ -27,7 +27,13 @@ from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest, FlowRef
 from evalops.reporter import generate_report
 from evalops.flow_introspect import introspect_flow
 from evalops.regression import compare as compare_regression, find_baseline
-from evalops.scorer import aggregate, build_trace_labels, wait_then_fetch
+from evalops.scorer import (
+    aggregate,
+    build_trace_bodies,
+    trace_label,
+    trace_output_text,
+    wait_then_fetch,
+)
 
 
 @dataclass(frozen=True)
@@ -114,12 +120,25 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     )
 
     trace_ids = sorted({s.get("traceId") for s in scores if s.get("traceId")})
-    trace_labels = build_trace_labels(
+    trace_bodies = build_trace_bodies(
         base_url=base_url,
         public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
         secret_key=os.environ["LANGFUSE_SECRET_KEY"],
         trace_ids=trace_ids,
     )
+    trace_labels = {tid: trace_label(body) for tid, body in trace_bodies.items()}
+    trace_actuals = {tid: trace_output_text(body) for tid, body in trace_bodies.items()}
+
+    expected_by_label: dict[str, str] = {}
+    for item in items:
+        label_key = trace_label({"input": item.input})
+        exp = getattr(item, "expected_output", None) or getattr(item, "expectedOutput", None)
+        if label_key and exp:
+            expected_by_label[label_key] = str(exp)
+    trace_expected = {
+        tid: expected_by_label.get(label, "")
+        for tid, label in trace_labels.items()
+    }
 
     manifest.aggregates = aggregate(scores)
     manifest.finish()
@@ -138,6 +157,8 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         trace_labels=trace_labels,
         regression=regression,
         flow_graph=flow_graph,
+        trace_expected=trace_expected,
+        trace_actual=trace_actuals,
     )
 
     return PipelineResult(

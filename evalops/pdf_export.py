@@ -14,14 +14,18 @@ Handles the subset of Markdown the EvalOps reporter emits:
 
 from __future__ import annotations
 
+import base64
 import re
+import urllib.error
+import urllib.request
 from io import BytesIO
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
+from reportlab.lib.units import cm, mm
 from reportlab.platypus import (
+    Image,
     Paragraph,
     Preformatted,
     SimpleDocTemplate,
@@ -29,6 +33,10 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+MERMAID_INK_URL = "https://mermaid.ink/img/{}?type=png&bgColor=ffffff"
+MERMAID_FETCH_TIMEOUT = 10
+MERMAID_MAX_WIDTH_CM = 17
 
 _TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
@@ -78,13 +86,25 @@ def _iter_flowables(md_text: str, styles: dict[str, ParagraphStyle]):
         line = lines[i].rstrip()
 
         if line.startswith("```"):
+            lang = line[3:].strip().lower()
             j = i + 1
             code_lines: list[str] = []
             while j < len(lines) and not lines[j].startswith("```"):
                 code_lines.append(lines[j])
                 j += 1
-            if code_lines:
-                yield Preformatted("\n".join(code_lines), styles["code"])
+            block = "\n".join(code_lines)
+            if lang == "mermaid":
+                img = _try_mermaid_image(block)
+                if img is not None:
+                    yield img
+                    yield Spacer(1, 4)
+                else:
+                    # Fallback: render the mermaid source as code so PDF readers still see structure
+                    yield Paragraph("<i>Mermaid diagram (rendering failed — source below)</i>", styles["body"])
+                    yield Preformatted(block, styles["code"])
+                    yield Spacer(1, 4)
+            elif code_lines:
+                yield Preformatted(block, styles["code"])
                 yield Spacer(1, 4)
             i = j + 1
             continue
@@ -168,3 +188,36 @@ def _inline(text: str) -> str:
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _try_mermaid_image(mermaid_src: str) -> Image | None:
+    """Render a Mermaid source block as a PNG via mermaid.ink.
+
+    Returns None on any failure (network, encoding, oversize) so the
+    caller can fall back to rendering the source as text. Cost: one
+    outbound HTTPS request per Mermaid block per report.
+    """
+    src = mermaid_src.strip()
+    if not src:
+        return None
+    encoded = base64.urlsafe_b64encode(src.encode("utf-8")).decode("ascii").rstrip("=")
+    if len(encoded) > 6000:
+        return None
+    url = MERMAID_INK_URL.format(encoded)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "evalops-pdf/1.0"})
+        with urllib.request.urlopen(req, timeout=MERMAID_FETCH_TIMEOUT) as resp:
+            data = resp.read()
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return None
+    try:
+        buf = BytesIO(data)
+        img = Image(buf)
+    except Exception:
+        return None
+    max_width = MERMAID_MAX_WIDTH_CM * cm
+    if img.imageWidth and img.imageHeight:
+        aspect = img.imageHeight / img.imageWidth
+        img.drawWidth = min(max_width, float(img.imageWidth))
+        img.drawHeight = img.drawWidth * aspect
+    return img

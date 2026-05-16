@@ -49,11 +49,19 @@ def find_baseline(
     manifests_dir: Path,
     current: ExperimentManifest,
     *,
-    target_environment: str = "production",
+    target_environment: str | None = None,
 ) -> ExperimentManifest | None:
-    """Return the most recent prior `production` manifest for the same crew + dataset."""
+    """Return the most recent prior manifest for the same crew + dataset + environment.
+
+    By default `target_environment` follows `current.environment`, so staging
+    runs compare against staging baselines and production against production.
+    Pass an explicit value to override (e.g. always compare against production).
+    """
     if current.crew is None or current.dataset is None:
         return None
+
+    if target_environment is None:
+        target_environment = current.environment
 
     candidates: list[tuple[str, ExperimentManifest]] = []
     for path in manifests_dir.glob("*.json"):

@@ -35,19 +35,22 @@ def generate_report(
     trace_labels: dict[str, str] | None = None,
     regression: RegressionReport | None = None,
     flow_graph: FlowGraph | None = None,
+    trace_expected: dict[str, str] | None = None,
+    trace_actual: dict[str, str] | None = None,
 ) -> Path:
-    """Render a Markdown report for the run; return the written file path.
-
-    `trace_labels` (optional) maps trace_id -> human-readable label.
-    `regression` (optional) is the comparison vs the most recent prior
-    production run for the same crew + dataset — drives Section 10.
-    `flow_graph` (optional) is the static Flow → Crew → Agents/Tasks
-    description — drives Section 4 (Flow architecture).
-    """
+    """Render a Markdown report for the run; return the written file path."""
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"{manifest.experiment_name}.md"
     path.write_text(
-        _render(manifest, scores, trace_labels or {}, regression, flow_graph),
+        _render(
+            manifest,
+            scores,
+            trace_labels or {},
+            regression,
+            flow_graph,
+            trace_expected or {},
+            trace_actual or {},
+        ),
         encoding="utf-8",
     )
     return path
@@ -59,6 +62,8 @@ def _render(
     trace_labels: dict[str, str],
     regression: RegressionReport | None,
     flow_graph: FlowGraph | None,
+    trace_expected: dict[str, str],
+    trace_actual: dict[str, str],
 ) -> str:
     aggregates = aggregate(scores)
     by_trace = group_by_trace(scores)
@@ -76,8 +81,8 @@ def _render(
     parts.append(_section_5_prompts(manifest))
     parts.append(_section_6_metric_defs(aggregates))
     parts.append(_section_7_aggregates(aggregates))
-    parts.append(_section_8_per_item(by_trace, trace_labels))
-    parts.append(_section_9_failures(failures, trace_labels))
+    parts.append(_section_8_per_item(by_trace, trace_labels, trace_expected))
+    parts.append(_section_9_failures(failures, trace_labels, trace_expected, trace_actual))
     parts.append(_section_10_regression(regression))
     parts.append(_section_11_cost_latency())
     parts.append(_section_12_recommendation(aggregates, scores))
@@ -220,9 +225,17 @@ def _section_7_aggregates(aggregates: dict[str, dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _truncate(text: str, max_len: int) -> str:
+    text = (text or "").replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
+    if len(text) > max_len:
+        return text[: max_len - 1].rstrip() + "…"
+    return text or "—"
+
+
 def _section_8_per_item(
     by_trace: dict[str, dict[str, float]],
     trace_labels: dict[str, str],
+    trace_expected: dict[str, str],
 ) -> str:
     lines = ["## 8. Per-item results\n"]
     if not by_trace:
@@ -230,8 +243,8 @@ def _section_8_per_item(
         return "\n".join(lines) + "\n"
     metric_names = sorted({m for t in by_trace.values() for m in t})
     header_metrics = " | ".join(f"{m} {_direction_arrow(get_metric_config(m).direction)}" for m in metric_names)
-    header = "| Item | " + header_metrics + " |"
-    sep = "|---|" + "|".join(["---:"] * len(metric_names)) + "|"
+    header = "| Item | Expected | " + header_metrics + " |"
+    sep = "|---|---|" + "|".join(["---:"] * len(metric_names)) + "|"
     lines.append(header)
     lines.append(sep)
 
@@ -243,7 +256,8 @@ def _section_8_per_item(
     for tid in trace_ids[:PER_ITEM_PREVIEW_LIMIT]:
         row = by_trace[tid]
         cells = [f"{row[m]:.3f}" if m in row else "—" for m in metric_names]
-        lines.append(f"| {_format_item(tid, trace_labels)} | " + " | ".join(cells) + " |")
+        expected = _truncate(trace_expected.get(tid, ""), 60)
+        lines.append(f"| {_format_item(tid, trace_labels)} | {expected} | " + " | ".join(cells) + " |")
     if len(trace_ids) > PER_ITEM_PREVIEW_LIMIT:
         lines.append(f"\n_{len(trace_ids) - PER_ITEM_PREVIEW_LIMIT} more rows omitted from preview._")
     return "\n".join(lines) + "\n"
@@ -252,6 +266,8 @@ def _section_8_per_item(
 def _section_9_failures(
     failures: list[dict[str, Any]],
     trace_labels: dict[str, str],
+    trace_expected: dict[str, str],
+    trace_actual: dict[str, str],
 ) -> str:
     lines = ["## 9. Failure examples\n"]
     lines.append("_Failure: score crosses the metric's direction-specific threshold (see Section 6)._\n")
@@ -259,15 +275,20 @@ def _section_9_failures(
         lines.append("None.")
         return "\n".join(lines) + "\n"
     failures_sorted = sorted(failures, key=lambda f: (f.get("name") or "", f.get("traceId") or ""))
-    lines.append("| Item | metric | value | comment |")
-    lines.append("|---|---|---:|---|")
+    lines.append("| Item | metric | value | Expected | Actual | Judge comment |")
+    lines.append("|---|---|---:|---|---|---|")
     for f in failures_sorted[:PER_ITEM_PREVIEW_LIMIT]:
         tid = f.get("traceId") or ""
         name = f.get("name", "")
         val = f.get("value")
-        comment = (f.get("comment") or "").replace("|", "\\|").replace("\n", " ")[:120]
         val_str = f"{float(val):.3f}" if val is not None else "—"
-        lines.append(f"| {_format_item(tid, trace_labels)} | {name} | {val_str} | {comment} |")
+        expected = _truncate(trace_expected.get(tid, ""), 80)
+        actual = _truncate(trace_actual.get(tid, ""), 80)
+        comment = _truncate(f.get("comment") or "", 100)
+        lines.append(
+            f"| {_format_item(tid, trace_labels)} | {name} | {val_str} | "
+            f"{expected} | {actual} | {comment} |"
+        )
     if len(failures_sorted) > PER_ITEM_PREVIEW_LIMIT:
         lines.append(f"\n_{len(failures_sorted) - PER_ITEM_PREVIEW_LIMIT} more failures omitted from preview._")
     return "\n".join(lines) + "\n"
@@ -316,19 +337,90 @@ def _section_12_recommendation(
     aggregates: dict[str, dict[str, Any]],
     scores: list[dict[str, Any]],
 ) -> str:
+    from evalops.metric_config import GATE_CONFIG
+
     result = gate_decide(aggregates, scores)
-    lines = ["## 12. Promotion recommendation\n"]
     icon = {
         "PROMOTE": "✅",
         "DO NOT PROMOTE": "❌",
         "NEEDS HUMAN REVIEW": "⚠️",
     }.get(result.decision.value, "•")
-    lines.append(f"**{icon} {result.decision.value}**\n")
-    if result.reasons:
-        lines.append("Reasons:")
-        for r in result.reasons:
-            lines.append(f"- {r}")
-    lines.append("\n_Rules in `config/evalops/thresholds.yaml`. Regression vs prior production run pending P3+ (currently `enable_regression: false`)._")
+
+    primary = list(GATE_CONFIG.get("primary_metrics") or [])
+    secondary = list(GATE_CONFIG.get("secondary_metrics") or [])
+
+    def _metric_line(name: str) -> str:
+        cfg = get_metric_config(name)
+        agg = aggregates.get(name)
+        if agg is None:
+            return f"- ⚠ **{name}**: no scores collected"
+        mean = agg["mean"]
+        failed = cfg.is_failure(mean)
+        mark = "✗" if failed else "✓"
+        rel = "<" if cfg.direction == DIRECTION_HIGHER else ">"
+        thr = cfg.failure_threshold
+        cmp = f"crossed threshold {thr:.2f}" if failed else f"within threshold {thr:.2f}"
+        return f"- {mark} **{name}**: {mean:.3f} ({cfg.label()}) — {cmp}"
+
+    lines = ["## 12. Promotion recommendation\n"]
+    lines.append(f"### Decision\n\n**{icon} {result.decision.value}**\n")
+
+    lines.append("### Primary metrics (gate)\n")
+    if primary:
+        for name in primary:
+            lines.append(_metric_line(name))
+    else:
+        lines.append("- _no primary metrics configured_")
+    lines.append("")
+
+    lines.append("### Secondary metrics\n")
+    if secondary:
+        for name in secondary:
+            if aggregates.get(name) is None:
+                continue
+            lines.append(_metric_line(name))
+    else:
+        lines.append("- _no secondary metrics configured_")
+    lines.append("")
+
+    lines.append("### Decision rule applied\n")
+    if result.decision.value == "PROMOTE":
+        rule = "All primary metrics and per-item failure rate within thresholds. No secondary metric flagged."
+    elif result.decision.value == "DO NOT PROMOTE":
+        rule = ("At least one primary metric mean or the per-item failure rate "
+                "crossed its threshold. Promotion is automatically blocked.")
+    else:
+        rule = ("All primary metrics pass, but a secondary metric flagged a concern. "
+                "Per gate rules, this triggers human review rather than auto-rejection.")
+    lines.append(f"_{rule}_\n")
+
+    lines.append("### Suggested next action\n")
+    if result.decision.value == "PROMOTE":
+        action = ("Promote this prompt/crew configuration to the production label in "
+                  "Langfuse. Capture the manifest hash in your release notes.")
+    elif result.decision.value == "DO NOT PROMOTE":
+        action = ("Do not promote. Review the failing primary metric(s) and the failure "
+                  "examples in Section 9. Iterate on the prompt or crew configuration "
+                  "and re-run before considering promotion again.")
+    else:
+        flagged = [
+            name for name in secondary
+            if aggregates.get(name) is not None and get_metric_config(name).is_failure(aggregates[name]["mean"])
+        ]
+        if flagged:
+            action = (
+                f"Have a human reviewer look at the flagged secondary metric(s): "
+                f"**{', '.join(flagged)}**. Inspect the per-item table (Section 8) "
+                f"and failure examples (Section 9) for the qualitative pattern, then "
+                f"decide whether to promote or iterate."
+            )
+        else:
+            action = ("Have a human reviewer inspect the report before deciding.")
+    lines.append(action)
+    lines.append("")
+
+    lines.append("_Rules in `config/evalops/thresholds.yaml`. "
+                 "Section 10 covers regression vs the prior run for the same crew + dataset + environment._")
     return "\n".join(lines) + "\n"
 
 
