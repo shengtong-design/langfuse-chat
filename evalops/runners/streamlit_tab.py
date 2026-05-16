@@ -7,16 +7,26 @@ UI share one implementation.
 The "last run" result is persisted in `st.session_state` so the
 PDF/Markdown download buttons remain available across Streamlit
 reruns until the tab is replaced or the session ends.
+
+Pipeline imports are deferred to render-time because pipeline.py
+transitively pulls in `core.prompts.loader` / `flows.research_flow`,
+and on Streamlit Cloud crew_app.py is mid-init when this module
+imports — ddtrace's import wrapper has not yet been installed at
+that point, and pulling those modules in too early causes a
+KeyError in importlib._find_and_load.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import streamlit as st
 
 from evalops.metric_config import REGISTRY as METRIC_REGISTRY
-from evalops.runners.pipeline import PipelineConfig, PipelineResult, run_pipeline
+
+if TYPE_CHECKING:
+    from evalops.runners.pipeline import PipelineResult
 
 
 def _md_to_pdf_bytes(md_text: str) -> bytes:
@@ -109,6 +119,8 @@ def render() -> None:
         if not metrics:
             st.warning("Please select at least one metric.")
             return
+
+        from evalops.runners.pipeline import PipelineConfig, run_pipeline
 
         cfg = PipelineConfig(
             dataset=dataset.strip(),
