@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "langfuse-chat"
+description = "Multi-crew CrewAI runner with Langfuse observability."
+requires-python = ">=3.12"
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+include = ["core*", "crews*", "flows*", "tools*", "guardrails*"]
+exclude = ["tests*", "scripts*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "ruff>=0.6.0,<1.0",
+    "mypy>=1.10,<2.0",
+    "pre-commit>=3.7,<5.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+# Baseline grandfathered 2026-05-15 per architecture-standard-poc quality-gate-baseline slice.
+# Each entry pinned to a documented invariant — not a "fix later" placeholder.
+[tool.ruff.lint.per-file-ignores]
+# Datadog LLMObs init must run before crewai imports (see CLAUDE.md). Long lines
+# in UI string content are not worth wrapping mid-sentence.
+"crew_app.py" = ["E402", "E501"]
+# Error-message format string with the registry-key reference — splitting would
+# fragment the message. TODO consider when crews/base.py gets a refactor pass.
+"crews/base.py" = ["E501"]
+# Module-import-after-sys.path-fix pattern documented in CLAUDE.md gotchas.
+# Applies to every script that uses scripts/bootstrap.py via the fix-then-import flow.
+"scripts/*.py" = ["E402"]
+# BaseConnector is an abstract base with default no-op implementations of
+# optional protocol methods (flush, update_run_context). B027 wants these to
+# either be @abstractmethod or non-empty — neither matches the intent.
+"core/observability/base.py" = ["B027"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+disallow_untyped_defs = false
+# PyYAML and a few other libs in requirements.txt don't ship type stubs.
+# Suppress the noise; revisit if/when we tighten typing.
+disable_error_code = ["import-untyped"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

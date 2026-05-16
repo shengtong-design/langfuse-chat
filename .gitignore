@@ -7,3 +7,9 @@ graphify-out/
 .claude/
 AGENTS.md
 *.bak
+
+# Dev tooling artifacts (quality-gate-baseline slice 2026-05-15)
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
