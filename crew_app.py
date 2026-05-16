@@ -142,7 +142,7 @@ import streamlit as st
 
 from core.observability import ConnectorManager
 from core.observability.langfuse_connector import LangfuseConnector
-from crews.common import extract_question
+from evalops.runners import streamlit_tab as evalops_tab
 from flows import FitnessFlow, ResearchFlow
 
 # Initialise ddtrace AFTER package imports — see _init_datadog_llmobs docstring.
@@ -239,7 +239,7 @@ print("[crew_app] rendering UI", flush=True)
 st.set_page_config(page_title="CrewAI Runner", layout="wide")
 st.title("Revio Multi-Crew Runner")
 
-tab_research, tab_fitness, tab_experiment = st.tabs(["Research", "Fitness Training", "Experiments"])
+tab_research, tab_fitness, tab_evalops = st.tabs(["Research", "Fitness Training", "EvalOps"])
 
 # ── Research ──────────────────────────────────────────────────────────────────
 with tab_research:
@@ -319,56 +319,6 @@ with tab_fitness:
                 if health_report_path:
                     Path(health_report_path).unlink(missing_ok=True)
 
-# ── Experiments ───────────────────────────────────────────────────────────────
-with tab_experiment:
-    st.caption("Runs the researcher crew against a Langfuse dataset and logs results for evaluation.")
-
-    if "experiment_running" not in st.session_state:
-        st.session_state.experiment_running = False
-
-    with st.form("experiment_form"):
-        dataset_name = st.text_input("Dataset name", value="crew-research-eval")
-        experiment_prefix = st.text_input("Experiment name prefix", value="crewai-researcher-v1")
-        exp_btn = st.form_submit_button(
-            "Experiment running..." if st.session_state.experiment_running else "Run experiment",
-            type="primary",
-            disabled=st.session_state.experiment_running,
-        )
-
-    if exp_btn and not st.session_state.experiment_running:
-        if not dataset_name.strip():
-            st.warning("Please enter a dataset name.")
-        else:
-            experiment_name = f"{experiment_prefix.strip()}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            try:
-                st.session_state.experiment_running = True
-                langfuse_client = _get_langfuse()
-                dataset = langfuse_client.get_dataset(dataset_name.strip())
-                items = list(dataset.items)
-                st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
-
-                connectors = _get_connectors()  # resolve in main thread before run_experiment threads start
-
-                def _task(item):
-                    q = extract_question(item.input)
-                    flow = ResearchFlow(
-                        connectors_factory=lambda: connectors,
-                    )
-                    result = flow.kickoff(inputs={"question": q})
-                    return result.get("result", "") if isinstance(result, dict) else str(result)
-
-                with st.spinner(f"Running {len(items)} items — this may take a while..."):
-                    langfuse_client.run_experiment(
-                        name=experiment_name,
-                        run_name=experiment_name,
-                        data=items,
-                        task=_task,
-                        max_concurrency=1,
-                        metadata={"framework": "crewai", "runner": "crew_app.py"},
-                    )
-                st.success(f"Experiment **{experiment_name}** complete!")
-                st.caption(f"Check Langfuse → Datasets → {dataset_name} → Experiments")
-            except Exception as e:
-                st.error(f"Failed: {e}")
-            finally:
-                st.session_state.experiment_running = False
+# ── EvalOps ───────────────────────────────────────────────────────────────────
+with tab_evalops:
+    evalops_tab.render()
