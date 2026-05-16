@@ -1,0 +1,29 @@
+# Pre-commit hooks for langfuse-chat.
+# Bootstrapped 2026-05-15 by architecture-standard-poc quality-gate-baseline slice.
+#
+# Install once after `py -3.12 -m pip install -e ".[dev]"`:
+#   pre-commit install
+#
+# Run on all files manually:
+#   pre-commit run --all-files
+#
+# Pytest is intentionally NOT in pre-commit — too slow for every commit.
+# CI (`.github/workflows/ci.yml`) runs pytest on push.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        # Match the same surface as `py -3.12 -m mypy core crews flows tools guardrails`.
+        # scripts/ excluded (sys.path-fix pattern confuses mypy).
+        files: ^(core|crews|flows|tools|guardrails)/.*\.py$
+        # No additional_dependencies needed; pyproject.toml [tool.mypy]
+        # ignore_missing_imports + disable_error_code = ["import-untyped"] cover library stubs.
+        additional_dependencies: []
