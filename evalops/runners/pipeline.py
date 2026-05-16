@@ -26,7 +26,11 @@ from evalops.dataset_loader import load_dataset_items
 from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest, FlowRef
 from evalops.reporter import generate_report
 from evalops.flow_introspect import introspect_flow
-from evalops.regression import compare as compare_regression, find_baseline
+from evalops.regression import (
+    compare as compare_regression,
+    find_baseline,
+    find_baseline_in_langfuse,
+)
 from evalops.scorer import (
     aggregate,
     build_trace_bodies,
@@ -145,6 +149,13 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
 
     manifests_dir = _PROJECT_ROOT / "evalops" / "manifests"
     baseline = find_baseline(manifests_dir, manifest)
+    if baseline is None:
+        baseline = find_baseline_in_langfuse(
+            base_url=base_url,
+            public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+            secret_key=os.environ["LANGFUSE_SECRET_KEY"],
+            current=manifest,
+        )
     regression = compare_regression(manifest, baseline) if baseline else None
 
     flow_graph = introspect_flow(flow_cls)

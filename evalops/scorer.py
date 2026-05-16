@@ -132,23 +132,27 @@ def fetch_scores(
     public_key: str,
     secret_key: str,
     from_timestamp: str,
+    to_timestamp: str | None = None,
     evaluator_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch scores from Langfuse v2 scores API since `from_timestamp` (ISO-8601 UTC).
+    """Fetch scores from Langfuse v2 scores API in [from_timestamp, to_timestamp].
 
     If `evaluator_names` is provided, the result is filtered by score name.
     """
     scores: list[dict[str, Any]] = []
     page = 1
     while True:
+        params: dict[str, Any] = {
+            "fromTimestamp": from_timestamp,
+            "limit": DEFAULT_PAGE_LIMIT,
+            "page": page,
+        }
+        if to_timestamp:
+            params["toTimestamp"] = to_timestamp
         resp = requests.get(
             f"{base_url.rstrip('/')}/api/public/v2/scores",
             auth=(public_key, secret_key),
-            params={
-                "fromTimestamp": from_timestamp,
-                "limit": DEFAULT_PAGE_LIMIT,
-                "page": page,
-            },
+            params=params,
             timeout=30,
         )
         resp.raise_for_status()
@@ -164,6 +168,33 @@ def fetch_scores(
         scores = [s for s in scores if s.get("name") in wanted]
 
     return scores
+
+
+def fetch_dataset_runs(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    dataset_name: str,
+) -> list[dict[str, Any]]:
+    """List all runs for a dataset via the Langfuse API."""
+    runs: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        resp = requests.get(
+            f"{base_url.rstrip('/')}/api/public/datasets/{dataset_name}/runs",
+            auth=(public_key, secret_key),
+            params={"page": page, "limit": 50},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        runs.extend(payload.get("data", []))
+        meta = payload.get("meta", {})
+        if page >= meta.get("totalPages", 1) or not payload.get("data"):
+            break
+        page += 1
+    return runs
 
 
 def aggregate(scores: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
