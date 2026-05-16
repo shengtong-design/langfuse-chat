@@ -3,14 +3,86 @@
 Replaces the previous `tab_experiment` block in `crew_app.py`.
 Delegates to `evalops.runners.pipeline.run_pipeline` so the CLI and
 UI share one implementation.
+
+The "last run" result is persisted in `st.session_state` so the
+PDF/Markdown download buttons remain available across Streamlit
+reruns until the tab is replaced or the session ends.
 """
 
 from __future__ import annotations
 
+import io
+from pathlib import Path
+
 import streamlit as st
 
 from evalops.metric_config import REGISTRY as METRIC_REGISTRY
-from evalops.runners.pipeline import PipelineConfig, run_pipeline
+from evalops.runners.pipeline import PipelineConfig, PipelineResult, run_pipeline
+
+_PDF_CSS = """
+@page { size: A4; margin: 2cm; }
+body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #222; }
+h1 { font-size: 16pt; }
+h2 { font-size: 12pt; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-top: 14pt; }
+h3 { font-size: 10pt; }
+table { border-collapse: collapse; margin: 6pt 0; }
+th, td { border: 1px solid #aaa; padding: 3pt 5pt; font-size: 8pt; }
+th { background-color: #eee; }
+code, pre { font-family: 'Courier New', monospace; font-size: 8pt; background: #f5f5f5; padding: 2pt; }
+pre { padding: 6pt; white-space: pre-wrap; }
+"""
+
+
+def _md_to_pdf_bytes(md_text: str) -> bytes:
+    """Render Markdown to PDF bytes. Returns b'' on failure (UI shows MD fallback)."""
+    try:
+        import markdown
+        from xhtml2pdf import pisa
+    except ImportError:
+        return b""
+    html_body = markdown.markdown(
+        md_text,
+        extensions=["tables", "fenced_code", "sane_lists"],
+    )
+    html_doc = f"<html><head><style>{_PDF_CSS}</style></head><body>{html_body}</body></html>"
+    buf = io.BytesIO()
+    result = pisa.CreatePDF(src=html_doc, dest=buf, encoding="utf-8")
+    if result.err:
+        return b""
+    return buf.getvalue()
+
+
+def _render_download_panel(result: PipelineResult) -> None:
+    """Render persistent download buttons for the most recent run."""
+    try:
+        md_text = result.report_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        st.info("Last report file is no longer on disk.")
+        return
+
+    st.markdown(f"**Last run:** `{result.experiment_name}` — {result.score_count} scores across {result.distinct_evaluators} evaluator(s)")
+
+    col_pdf, col_md = st.columns(2)
+    with col_pdf:
+        pdf_bytes = _md_to_pdf_bytes(md_text)
+        if pdf_bytes:
+            st.download_button(
+                label="Download PDF",
+                data=pdf_bytes,
+                file_name=f"{result.experiment_name}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        else:
+            st.caption("PDF unavailable (renderer error or missing dep).")
+    with col_md:
+        st.download_button(
+            label="Download Markdown",
+            data=md_text,
+            file_name=f"{result.experiment_name}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
 
 
 def render() -> None:
@@ -21,6 +93,11 @@ def render() -> None:
 
     if "evalops_running" not in st.session_state:
         st.session_state.evalops_running = False
+
+    last_result: PipelineResult | None = st.session_state.get("evalops_last_result")
+    if last_result is not None:
+        _render_download_panel(last_result)
+        st.divider()
 
     available_metrics = sorted(METRIC_REGISTRY.keys())
     default_metrics = [m for m in ("Conciseness", "Hallucination", "Correctness") if m in available_metrics]
@@ -69,6 +146,7 @@ def render() -> None:
                 f"Running '{cfg.dataset}' on {cfg.crew} (wait {cfg.wait_seconds}s for judges)..."
             ):
                 result = run_pipeline(cfg)
+            st.session_state["evalops_last_result"] = result
             st.success(f"Experiment **{result.experiment_name}** complete.")
             st.markdown(f"- Items: **{result.item_count}**")
             st.markdown(
