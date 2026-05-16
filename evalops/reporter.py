@@ -20,6 +20,7 @@ from evalops.metric_config import (
     DIRECTION_LOWER,
     get as get_metric_config,
 )
+from evalops.promotion_gate import decide as gate_decide
 from evalops.scorer import aggregate, group_by_trace
 
 PER_ITEM_PREVIEW_LIMIT = 30
@@ -58,7 +59,7 @@ def _render(manifest: ExperimentManifest, scores: list[dict[str, Any]]) -> str:
     parts.append(_section_9_failures(failures))
     parts.append(_section_10_regression())
     parts.append(_section_11_cost_latency())
-    parts.append(_section_12_recommendation())
+    parts.append(_section_12_recommendation(aggregates, scores))
 
     return "\n".join(parts)
 
@@ -224,11 +225,24 @@ def _section_11_cost_latency() -> str:
     )
 
 
-def _section_12_recommendation() -> str:
-    return (
-        "## 12. Promotion recommendation\n\n"
-        "_Pending P3 — emits PROMOTE / DO NOT PROMOTE / NEEDS HUMAN REVIEW from `promotion_gate.py` with per-metric reasons._\n"
-    )
+def _section_12_recommendation(
+    aggregates: dict[str, dict[str, Any]],
+    scores: list[dict[str, Any]],
+) -> str:
+    result = gate_decide(aggregates, scores)
+    lines = ["## 12. Promotion recommendation\n"]
+    icon = {
+        "PROMOTE": "✅",
+        "DO NOT PROMOTE": "❌",
+        "NEEDS HUMAN REVIEW": "⚠️",
+    }.get(result.decision.value, "•")
+    lines.append(f"**{icon} {result.decision.value}**\n")
+    if result.reasons:
+        lines.append("Reasons:")
+        for r in result.reasons:
+            lines.append(f"- {r}")
+    lines.append("\n_Rules in `config/evalops/thresholds.yaml`. Regression vs prior production run pending P3+ (currently `enable_regression: false`)._")
+    return "\n".join(lines) + "\n"
 
 
 def _find_failures(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:

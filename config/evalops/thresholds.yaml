@@ -1,0 +1,58 @@
+# EvalOps metric direction + failure thresholds + promotion gate rules.
+#
+# Loaded by `evalops/metric_config.py` and consumed by
+# `evalops/promotion_gate.py`. Per the eval-gate spec, this file is the
+# authoritative source; code defaults serve only as fallback if the
+# file is missing (e.g. test environments).
+#
+# Schema version is loaded into the report so future schema migrations
+# stay traceable.
+
+schema_version: "1.0"
+
+# Per-metric semantics. direction is one of:
+#   higher_is_better | lower_is_better | unknown
+metrics:
+  Conciseness:
+    direction: higher_is_better
+    failure_threshold: 0.5
+  Correctness:
+    direction: higher_is_better
+    failure_threshold: 0.9
+  Helpfulness:
+    direction: higher_is_better
+    failure_threshold: 0.5
+  Relevance:
+    direction: higher_is_better
+    failure_threshold: 0.5
+  Hallucination:
+    direction: lower_is_better
+    failure_threshold: 0.5
+  Toxicity:
+    direction: lower_is_better
+    failure_threshold: 0.3
+
+# Promotion gate rules — applied to a run's aggregates.
+gate:
+  # Primary metrics gate promotion outright. If any primary's mean
+  # crosses its failure_threshold (direction-aware), the gate rejects.
+  primary_metrics:
+    - Correctness
+    - Hallucination
+
+  # Secondary metrics are observed but don't block promotion on their
+  # own. A failing secondary triggers NEEDS HUMAN REVIEW rather than
+  # outright rejection.
+  secondary_metrics:
+    - Conciseness
+    - Helpfulness
+    - Relevance
+    - Toxicity
+
+  # Fraction of items where any primary metric crosses its threshold.
+  # Above this rate, the gate rejects even if the means look fine.
+  primary_failure_rate_threshold: 0.2
+
+  # P3 minimal: gate runs against absolute thresholds only.
+  # P3+: regression vs previous production-label run for the same crew.
+  enable_regression: false
