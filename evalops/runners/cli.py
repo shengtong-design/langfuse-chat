@@ -1,15 +1,15 @@
 """Headless EvalOps runner CLI.
 
-Reproduces the original `scripts/run_experiment.py` behavior with explicit
-flags. Phase 0 scope: dataset load + flow execution against Langfuse,
-manifest persisted to `evalops/manifests/`. Scoring / report / gate land
-in Phases 1 / 1 / 3 respectively.
+Phase 1 vertical slice: dataset experiment + Langfuse LLM-as-a-Judge
+score collection + Markdown report writing.
 
 Usage:
     python -m evalops.runners.cli \\
         --dataset crew-research-eval \\
         --crew researcher \\
-        --prompt-label production
+        --prompt-label production \\
+        [--metrics Conciseness,Hallucination,Correctness] \\
+        [--wait-seconds 60]
 """
 
 from __future__ import annotations
@@ -34,9 +34,11 @@ from langfuse import Langfuse  # noqa: E402
 
 from core.observability import ConnectorManager  # noqa: E402
 from core.observability.langfuse_connector import LangfuseConnector  # noqa: E402
-from evalops.crew_runner import make_task  # noqa: E402
+from evalops.crew_runner import get_flow_class, make_task  # noqa: E402
 from evalops.dataset_loader import load_dataset_items  # noqa: E402
-from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest  # noqa: E402
+from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest, FlowRef  # noqa: E402
+from evalops.reporter import generate_report  # noqa: E402
+from evalops.scorer import wait_then_fetch  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -49,6 +51,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Override experiment name. Defaults to {EXPERIMENT_PREFIX}-{timestamp}.",
     )
+    p.add_argument(
+        "--metrics",
+        default=None,
+        help="Comma-separated evaluator names to include in the report. "
+             "Defaults to all scores collected in the run window.",
+    )
+    p.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=60,
+        help="Seconds to wait after experiment finishes before fetching scores. "
+             "Allows async LLM-as-a-Judge evaluators to complete. Default: 60.",
+    )
     return p.parse_args(argv)
 
 
@@ -60,10 +75,19 @@ def main(argv: list[str] | None = None) -> None:
         + "-"
         + datetime.now().strftime("%Y%m%d-%H%M%S")
     )
+    evaluator_names = (
+        [n.strip() for n in args.metrics.split(",") if n.strip()]
+        if args.metrics
+        else None
+    )
 
     manifest = ExperimentManifest.start(experiment_name)
     manifest.crew = CrewRef(name=args.crew)
     manifest.environment = args.prompt_label
+
+    flow_cls = get_flow_class(args.crew)
+    manifest.flow = FlowRef(name=flow_cls.__name__, version=getattr(flow_cls, "flow_version", None))
+    manifest.metrics_requested = evaluator_names or []
 
     langfuse = Langfuse(
         public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
@@ -96,15 +120,31 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     langfuse.flush()
+
+    scores = wait_then_fetch(
+        base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+        public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+        secret_key=os.environ["LANGFUSE_SECRET_KEY"],
+        from_timestamp=manifest.started_at,
+        evaluator_names=evaluator_names,
+        wait_seconds=args.wait_seconds,
+    )
+
     manifest.finish()
 
     manifests_dir = _PROJECT_ROOT / "evalops" / "manifests"
     manifest_path = manifest.save(manifests_dir)
 
+    reports_dir = _PROJECT_ROOT / "evalops" / "reports"
+    report_path = generate_report(manifest, scores, reports_dir)
+
     print(
         f"\n[OK] Experiment '{experiment_name}' complete.\n"
+        f"  Items:    {len(items)}\n"
+        f"  Scores:   {len(scores)} fetched ({len({s.get('name') for s in scores}) - (1 if any(s.get('name') is None for s in scores) else 0)} distinct evaluators)\n"
         f"  Manifest: {manifest_path}\n"
-        f"  Check Langfuse -> Datasets -> {args.dataset} -> Experiments"
+        f"  Report:   {report_path}\n"
+        f"  Langfuse: Datasets -> {args.dataset} -> Experiments"
     )
 
 
