@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-RUNNER_VERSION = "evalops-0.1.0"
+RUNNER_VERSION = "evalops-0.2.0"
+SCHEMA_VERSION = "1.0"
 
 
 @dataclass
@@ -41,6 +42,7 @@ class PromptVersionRef:
 class ExperimentManifest:
     experiment_name: str
     started_at: str
+    schema_version: str = SCHEMA_VERSION
     completed_at: str | None = None
     dataset: DatasetRef | None = None
     crew: CrewRef | None = None
