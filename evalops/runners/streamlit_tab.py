@@ -11,7 +11,6 @@ reruns until the tab is replaced or the session ends.
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
 import streamlit as st
@@ -19,37 +18,17 @@ import streamlit as st
 from evalops.metric_config import REGISTRY as METRIC_REGISTRY
 from evalops.runners.pipeline import PipelineConfig, PipelineResult, run_pipeline
 
-_PDF_CSS = """
-@page { size: A4; margin: 2cm; }
-body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #222; }
-h1 { font-size: 16pt; }
-h2 { font-size: 12pt; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-top: 14pt; }
-h3 { font-size: 10pt; }
-table { border-collapse: collapse; margin: 6pt 0; }
-th, td { border: 1px solid #aaa; padding: 3pt 5pt; font-size: 8pt; }
-th { background-color: #eee; }
-code, pre { font-family: 'Courier New', monospace; font-size: 8pt; background: #f5f5f5; padding: 2pt; }
-pre { padding: 6pt; white-space: pre-wrap; }
-"""
-
 
 def _md_to_pdf_bytes(md_text: str) -> bytes:
     """Render Markdown to PDF bytes. Returns b'' on failure (UI shows MD fallback)."""
     try:
-        import markdown
-        from xhtml2pdf import pisa
+        from evalops.pdf_export import md_to_pdf_bytes
     except ImportError:
         return b""
-    html_body = markdown.markdown(
-        md_text,
-        extensions=["tables", "fenced_code", "sane_lists"],
-    )
-    html_doc = f"<html><head><style>{_PDF_CSS}</style></head><body>{html_body}</body></html>"
-    buf = io.BytesIO()
-    result = pisa.CreatePDF(src=html_doc, dest=buf, encoding="utf-8")
-    if result.err:
+    try:
+        return md_to_pdf_bytes(md_text)
+    except Exception:
         return b""
-    return buf.getvalue()
 
 
 def _render_download_panel(result: PipelineResult) -> None:
