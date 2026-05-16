@@ -7,3 +7,9 @@ graphify-out/
 .claude/
 AGENTS.md
 *.bak
+
+# EvalOps run artifacts — local-only per eval-gate spec (cto-log).
+evalops/manifests/*.json
+evalops/reports/*.md
+!evalops/manifests/.gitkeep
+!evalops/reports/.gitkeep
