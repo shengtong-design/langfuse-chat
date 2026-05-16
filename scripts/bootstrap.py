@@ -1,4 +1,5 @@
 """Common bootstrap for CLI scripts — call setup() before any project imports."""
+
 import logging
 import os
 import sys
@@ -15,6 +16,7 @@ def setup() -> None:
 
     try:
         from dotenv import load_dotenv
+
         load_dotenv(root / ".env")
     except ModuleNotFoundError:
         pass

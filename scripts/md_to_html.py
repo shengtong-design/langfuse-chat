@@ -8,6 +8,7 @@ Defaults to SYSTEM_OVERVIEW.md → SYSTEM_OVERVIEW.html at the repo root.
 Renders ```mermaid fenced blocks as live diagrams via the mermaid.js CDN
 (requires internet on first load to fetch the library; cached thereafter).
 """
+
 from __future__ import annotations
 
 import re
@@ -168,10 +169,12 @@ def _extract_mermaid(md_text: str) -> str:
     mermaid source survives the markdown parser and the inline script in the
     HTML template renders the diagram client-side.
     """
+
     def _sub(match: re.Match) -> str:
         # Surround with blank lines so Markdown treats the div as a block,
         # not an inline span inside the next paragraph.
         return f'\n\n<div class="mermaid">\n{match.group(1)}</div>\n\n'
+
     return _MERMAID_BLOCK.sub(_sub, md_text)
 
 

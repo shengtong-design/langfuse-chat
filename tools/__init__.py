@@ -12,15 +12,17 @@ Add a new tool:
     2. Register a builder here under a unique snake_case key.
     3. Reference the key from the relevant agent's YAML under ``tools:``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 from crewai.tools import BaseTool
 
 from .health_report_reader_tool import HealthReportReaderTool
 
-TOOL_BUILDERS: Dict[str, Callable[[Dict[str, Any]], BaseTool]] = {
+TOOL_BUILDERS: dict[str, Callable[[dict[str, Any]], BaseTool]] = {
     "health_report_reader": lambda inputs: HealthReportReaderTool(
         file_path=inputs.get("health_report_path", "") or "",
     ),

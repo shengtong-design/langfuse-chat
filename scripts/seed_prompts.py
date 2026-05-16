@@ -27,13 +27,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.bootstrap import setup
+
 setup()
 
 import os
-from typing import Iterable, Tuple
+from collections.abc import Iterable
 
 import yaml
-
 from langfuse import Langfuse
 
 from crews.base import (
@@ -63,7 +63,7 @@ def _collect(
     key_field: str,
     llm_text_fields: tuple,
     prompt_body_field: str,
-) -> Iterable[Tuple[str, dict, str]]:
+) -> Iterable[tuple[str, dict, str]]:
     """Yield (langfuse_name, config_dict, prompt_body) for each concept YAML.
 
     config_dict is restricted to the LLM-text field set so seeding mirrors
@@ -89,14 +89,24 @@ def _collect(
 
 def seed() -> None:
     prompts = []
-    prompts.extend(_collect(
-        _AGENTS_DIR, _AGENT_PROMPT_NAMESPACE, "prompt_key",
-        _AGENT_LLM_TEXT_FIELDS, prompt_body_field="backstory",
-    ))
-    prompts.extend(_collect(
-        _TASKS_DIR, _TASK_PROMPT_NAMESPACE, "prompt_key",
-        _TASK_LLM_TEXT_FIELDS, prompt_body_field="description",
-    ))
+    prompts.extend(
+        _collect(
+            _AGENTS_DIR,
+            _AGENT_PROMPT_NAMESPACE,
+            "prompt_key",
+            _AGENT_LLM_TEXT_FIELDS,
+            prompt_body_field="backstory",
+        )
+    )
+    prompts.extend(
+        _collect(
+            _TASKS_DIR,
+            _TASK_PROMPT_NAMESPACE,
+            "prompt_key",
+            _TASK_LLM_TEXT_FIELDS,
+            prompt_body_field="description",
+        )
+    )
 
     print(f"Seeding {len(prompts)} prompts (label='{LABEL}') ...\n")
     errors = 0

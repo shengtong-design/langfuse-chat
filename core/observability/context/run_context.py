@@ -29,20 +29,24 @@ class RunContext:
         self._workflow_id = value
 
     def as_metadata(self) -> dict:
-        return {k: v for k, v in {
-            "session_id":     self.session_id,
-            "run_id":         self.run_id,
-            "user_id":        self.user_id,
-            "environment":    self.environment,
-            "app_version":    self.app_version,
-            "crew_name":      self.crew_name,
-            "flow_name":      self.flow_name,
-            "deployment_sha": self.deployment_sha,
-            "crew_version":   self.crew_version,
-            "flow_version":   self.flow_version,
-            "model_version":  self.model_version,
-            "workflow_id":    self.workflow_id,
-        }.items() if v}
+        return {
+            k: v
+            for k, v in {
+                "session_id": self.session_id,
+                "run_id": self.run_id,
+                "user_id": self.user_id,
+                "environment": self.environment,
+                "app_version": self.app_version,
+                "crew_name": self.crew_name,
+                "flow_name": self.flow_name,
+                "deployment_sha": self.deployment_sha,
+                "crew_version": self.crew_version,
+                "flow_version": self.flow_version,
+                "model_version": self.model_version,
+                "workflow_id": self.workflow_id,
+            }.items()
+            if v
+        }
 
     def as_tags(self) -> list:
         tags = []
@@ -59,15 +63,19 @@ class RunContext:
         return tags
 
     def as_dd_tags(self) -> dict:
-        return {k: v for k, v in {
-            "env":            self.environment,
-            "crew":           self.crew_name,
-            "flow":           self.flow_name,
-            "version":        self.app_version,
-            "deployment_sha": self.deployment_sha[:8] if self.deployment_sha else "",
-            "crew_version":   self.crew_version,
-            "flow_version":   self.flow_version,
-            "model_version":  self.model_version,
-            "workflow_id":    self.workflow_id,
-            "session_id":     self.session_id,
-        }.items() if v}
+        return {
+            k: v
+            for k, v in {
+                "env": self.environment,
+                "crew": self.crew_name,
+                "flow": self.flow_name,
+                "version": self.app_version,
+                "deployment_sha": self.deployment_sha[:8] if self.deployment_sha else "",
+                "crew_version": self.crew_version,
+                "flow_version": self.flow_version,
+                "model_version": self.model_version,
+                "workflow_id": self.workflow_id,
+                "session_id": self.session_id,
+            }.items()
+            if v
+        }

@@ -13,13 +13,15 @@ Add a new guardrail:
     2. Register it here under a unique snake_case key.
     3. Reference the key from the relevant task's YAML under ``guardrail:``.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 from .fitness_analysis_guardrail import build_fitness_analysis_guardrail
 
-GUARDRAIL_BUILDERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
+GUARDRAIL_BUILDERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "fitness_analysis_guardrail": build_fitness_analysis_guardrail,
 }
 

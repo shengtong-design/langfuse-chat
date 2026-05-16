@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from typing import Any, Dict, Iterator, Optional
+from typing import Any
 
 from .base import BaseConnector, SpanHandle
 
@@ -21,7 +22,7 @@ class LangfuseSpanHandle(SpanHandle):
 class LangfuseConnector(BaseConnector):
     def __init__(self, client: Any) -> None:
         self._client = client
-        self._run_ctx: Optional[Any] = None
+        self._run_ctx: Any | None = None
 
     def update_run_context(self, context: Any) -> None:
         self._run_ctx = context
@@ -35,10 +36,10 @@ class LangfuseConnector(BaseConnector):
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Iterator[LangfuseSpanHandle]:
-        kwargs: Dict[str, Any] = {"name": name, "as_type": span_type}
+        kwargs: dict[str, Any] = {"name": name, "as_type": span_type}
         if input_data is not None:
             kwargs["input"] = input_data
         if metadata is not None:
@@ -53,7 +54,8 @@ class LangfuseConnector(BaseConnector):
             if self._run_ctx is not None:
                 try:
                     from langfuse import propagate_attributes
-                    attrs: Dict[str, Any] = {}
+
+                    attrs: dict[str, Any] = {}
                     if self._run_ctx.session_id:
                         attrs["session_id"] = self._run_ctx.session_id
                     if self._run_ctx.user_id:

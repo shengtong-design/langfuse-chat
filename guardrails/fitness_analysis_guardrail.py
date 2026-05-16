@@ -18,10 +18,12 @@ annotations``) ``get_origin`` returns ``None`` and the validator raises
 "If return type is annotated, it must be Tuple[bool, Any]". The outer
 builder's annotation still documents the contract for readers.
 """
+
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from crewai.tasks.task_output import TaskOutput
 
@@ -43,8 +45,8 @@ _MIN_LENGTH = 300
 
 
 def build_fitness_analysis_guardrail(
-    inputs: Dict[str, Any],
-) -> Callable[[TaskOutput], Tuple[bool, Any]]:
+    inputs: dict[str, Any],
+) -> Callable[[TaskOutput], tuple[bool, Any]]:
     def check(output: TaskOutput):
         text = (output.raw or "").lower()
         if len(text) < _MIN_LENGTH:

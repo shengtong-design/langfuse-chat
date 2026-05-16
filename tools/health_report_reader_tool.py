@@ -6,6 +6,7 @@ The agent invokes the tool with no arguments and receives the full report
 text. When no file was uploaded, returns a short notice so the agent can
 gracefully continue without the report.
 """
+
 from __future__ import annotations
 
 import logging

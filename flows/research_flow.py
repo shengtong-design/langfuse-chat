@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, ClassVar, Dict
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel, Field
@@ -12,7 +13,7 @@ log = logging.getLogger(__name__)
 class ResearchState(BaseModel):
     question: str = ""
     result: str = ""
-    prompt_versions: Dict[str, str] = Field(default_factory=dict)
+    prompt_versions: dict[str, str] = Field(default_factory=dict)
     stdout: str = ""
     stderr: str = ""
 
@@ -49,7 +50,7 @@ class ResearchFlow(Flow[ResearchState]):
         self._connectors_factory = connectors_factory
 
     @start()
-    def run_research(self) -> Dict[str, Any]:
+    def run_research(self) -> dict[str, Any]:
         try:
             from core.observability.context import EnrichedConnectorManager, make_run_context
             from crews.research_crew import ResearchCrew

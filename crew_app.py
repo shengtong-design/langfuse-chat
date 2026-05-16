@@ -37,6 +37,7 @@ os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ModuleNotFoundError:
     pass
@@ -75,14 +76,17 @@ def _init_datadog_llmobs() -> bool:
         os.environ.setdefault("DD_TRACE_ENABLED", "0")
         logging.getLogger("ddtrace").setLevel(logging.ERROR)
         from ddtrace.llmobs import LLMObs
+
         LLMObs.enable(
             ml_app=os.getenv("DD_LLMOBS_ML_APP", "crew-streamlit"),
             api_key=os.getenv("DD_API_KEY"),
             site=os.getenv("DD_SITE", "datadoghq.com"),
-            agentless_enabled=os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on"),
+            agentless_enabled=os.getenv("DD_LLMOBS_AGENTLESS_ENABLED", "true").strip().lower()
+            in ("1", "true", "yes", "on"),
             env=os.getenv("DD_ENV"),
             service=os.getenv("DD_SERVICE", "crew-streamlit"),
-            integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower() not in ("0", "false", "no"),
+            integrations_enabled=os.getenv("DD_LLMOBS_INTEGRATIONS_ENABLED", "true").strip().lower()
+            not in ("0", "false", "no"),
         )
         _patch_ddtrace_crewai_task_keyerror()
         return True
@@ -136,7 +140,7 @@ def _patch_ddtrace_crewai_task_keyerror() -> None:
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import streamlit as st
 
@@ -159,6 +163,7 @@ def _require_env(name: str) -> str:
 @st.cache_resource
 def _get_langfuse():
     from langfuse import Langfuse
+
     return Langfuse(
         public_key=_require_env("LANGFUSE_PUBLIC_KEY"),
         secret_key=_require_env("LANGFUSE_SECRET_KEY"),
@@ -173,12 +178,14 @@ def _get_connectors() -> ConnectorManager:
     # CrewAI/OpenAI integrations (enabled in _init_datadog_llmobs) produce all
     # the Datadog spans now; our DatadogConnector is dormant in
     # core/observability/datadog_connector.py if it needs to be revived.
-    return ConnectorManager([
-        LangfuseConnector(_get_langfuse()),
-    ])
+    return ConnectorManager(
+        [
+            LangfuseConnector(_get_langfuse()),
+        ]
+    )
 
 
-def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
+def _run_flow(flow_cls, inputs: dict[str, Any]) -> dict[str, Any]:
     """Instantiate a flow, kick it off, and return the result dict.
 
     Both cached resources are resolved here (main Streamlit thread) so that
@@ -199,7 +206,7 @@ def _run_flow(flow_cls, inputs: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool = False) -> None:
+def _show_output(data: dict[str, Any], heading: str = "Result", markdown: bool = False) -> None:
     """Render crew result and collapsible stdout/stderr."""
     st.subheader(heading)
     (st.markdown if markdown else st.write)(data.get("result", ""))
@@ -207,10 +214,13 @@ def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool =
 
     def _render_section(prefix: str, label: str) -> None:
         suffix = ".prompt_source"
-        names = sorted({
-            k[len(prefix):-len(suffix)]
-            for k in pv if k.startswith(prefix) and k.endswith(suffix)
-        })
+        names = sorted(
+            {
+                k[len(prefix) : -len(suffix)]
+                for k in pv
+                if k.startswith(prefix) and k.endswith(suffix)
+            }
+        )
         if not names:
             return
         st.markdown(f"**{label}**")
@@ -221,7 +231,10 @@ def _show_output(data: Dict[str, Any], heading: str = "Result", markdown: bool =
             if source == "langfuse":
                 st.success(f"`{n}` — Langfuse **{prompt_name}** v{version}", icon="✅")
             else:
-                st.warning(f"`{n}` — YAML fallback (prompt `{prompt_name}` not found in Langfuse)", icon="⚠️")
+                st.warning(
+                    f"`{n}` — YAML fallback (prompt `{prompt_name}` not found in Langfuse)",
+                    icon="⚠️",
+                )
 
     if any(k.endswith(".prompt_source") for k in pv):
         with st.expander("Prompt sources", expanded=True):
@@ -304,14 +317,17 @@ with tab_fitness:
                 health_report_path = tmp.name
             try:
                 with st.spinner("Generating your personalized fitness plan (3 agents)..."):
-                    data = _run_flow(FitnessFlow, {
-                        "goals": goals.strip(),
-                        "fitness_level": fitness_level,
-                        "equipment": equipment.strip(),
-                        "time_per_week": time_per_week,
-                        "limitations": limitations.strip() or "None specified",
-                        "health_report_path": health_report_path,
-                    })
+                    data = _run_flow(
+                        FitnessFlow,
+                        {
+                            "goals": goals.strip(),
+                            "fitness_level": fitness_level,
+                            "equipment": equipment.strip(),
+                            "time_per_week": time_per_week,
+                            "limitations": limitations.strip() or "None specified",
+                            "health_report_path": health_report_path,
+                        },
+                    )
                 _show_output(data, heading="Your Personalized Fitness Plan", markdown=True)
             except Exception as e:
                 st.error(f"Failed: {e}")
@@ -321,7 +337,9 @@ with tab_fitness:
 
 # ── Experiments ───────────────────────────────────────────────────────────────
 with tab_experiment:
-    st.caption("Runs the researcher crew against a Langfuse dataset and logs results for evaluation.")
+    st.caption(
+        "Runs the researcher crew against a Langfuse dataset and logs results for evaluation."
+    )
 
     if "experiment_running" not in st.session_state:
         st.session_state.experiment_running = False
@@ -339,15 +357,21 @@ with tab_experiment:
         if not dataset_name.strip():
             st.warning("Please enter a dataset name.")
         else:
-            experiment_name = f"{experiment_prefix.strip()}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            experiment_name = (
+                f"{experiment_prefix.strip()}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            )
             try:
                 st.session_state.experiment_running = True
                 langfuse_client = _get_langfuse()
                 dataset = langfuse_client.get_dataset(dataset_name.strip())
                 items = list(dataset.items)
-                st.info(f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`...")
+                st.info(
+                    f"Found **{len(items)}** items in dataset `{dataset_name}`. Running as `{experiment_name}`..."
+                )
 
-                connectors = _get_connectors()  # resolve in main thread before run_experiment threads start
+                connectors = (
+                    _get_connectors()
+                )  # resolve in main thread before run_experiment threads start
 
                 def _task(item):
                     q = extract_question(item.input)

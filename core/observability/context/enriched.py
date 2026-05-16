@@ -15,10 +15,12 @@ Usage in crew_app.py:
     obs = EnrichedConnectorManager(_get_connectors(), make_run_context("researcher"))
     crew.run(inputs, obs)
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Runtime imports of core.observability here would re-enter the core package
@@ -32,20 +34,20 @@ from .run_context import RunContext
 
 
 class EnrichedConnectorManager:
-    def __init__(self, base: "ConnectorManager", context: RunContext) -> None:
+    def __init__(self, base: ConnectorManager, context: RunContext) -> None:
         self._base = base
         self._ctx = context
         # Build a callbacks-only manager by filtering connectors directly.
         # Avoids calling base.for_callbacks() which would fail on a stale
         # @st.cache_resource instance whose class predates that method.
-        raw = getattr(base, '_connectors', [])
-        cb_connectors = [c for c in raw if getattr(c, 'handles_step_callbacks', True)]
+        raw = getattr(base, "_connectors", [])
+        cb_connectors = [c for c in raw if getattr(c, "handles_step_callbacks", True)]
         cb_base = type(base)(cb_connectors)
         self._callbacks = CrewCallbacks(EnrichedConnectorManager._from_parts(cb_base, context))
         base.update_run_context(context)
 
     @classmethod
-    def _from_parts(cls, base: "ConnectorManager", context: RunContext) -> "EnrichedConnectorManager":
+    def _from_parts(cls, base: ConnectorManager, context: RunContext) -> EnrichedConnectorManager:
         """Create a bare instance with no callbacks wiring (used internally)."""
         inst = object.__new__(cls)
         inst._base = base
@@ -57,7 +59,7 @@ class EnrichedConnectorManager:
     def crew_callbacks(self) -> CrewCallbacks:
         return self._callbacks
 
-    def _merged_metadata(self, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _merged_metadata(self, metadata: dict[str, Any] | None) -> dict[str, Any]:
         # Emit in reverse-alphabetical insertion order so the Langfuse UI, which
         # renders dict keys in reverse-insertion order, displays them forward
         # alphabetically. This couples us to a Langfuse rendering quirk — if
@@ -72,10 +74,12 @@ class EnrichedConnectorManager:
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Iterator[SpanHandle]:
-        with self._base.span(name, span_type, input_data, self._merged_metadata(metadata)) as handle:
+        with self._base.span(
+            name, span_type, input_data, self._merged_metadata(metadata)
+        ) as handle:
             yield handle
 
     def flush(self) -> None:

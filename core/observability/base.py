@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional, Protocol
+from typing import Any, Protocol
 
 
 class ObsManager(Protocol):
@@ -14,8 +15,8 @@ class ObsManager(Protocol):
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Any: ...
 
     def flush(self) -> None: ...
@@ -60,8 +61,8 @@ class BaseConnector(ABC):
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Iterator[SpanHandle]: ...
 
     def flush(self) -> None:

@@ -38,10 +38,11 @@ Langfuse prompt setup:
     text fields are pulled, so wiring (agent, context, tools, ...) cannot be
     changed via a Langfuse edit.
 """
+
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -50,12 +51,12 @@ log = logging.getLogger(__name__)
 class PromptResult:
     """Loaded prompt config plus version metadata for span tracing."""
 
-    config: Dict[str, Any]
+    config: dict[str, Any]
     version: str = "fallback"
     name: str = ""
     label: str = ""
 
-    def as_metadata(self) -> Dict[str, Any]:
+    def as_metadata(self) -> dict[str, Any]:
         """Returns a flat dict suitable for Langfuse / Datadog span metadata."""
         return {
             "prompt_name": self.name,
@@ -77,10 +78,10 @@ class PromptLoader:
       - Env vars not set         → uses fallback silently (expected in local dev)
     """
 
-    def __init__(self, client: Optional[Any] = None) -> None:
-        self._client: Optional[Any] = client
+    def __init__(self, client: Any | None = None) -> None:
+        self._client: Any | None = client
 
-    def _client_or_none(self) -> Optional[Any]:
+    def _client_or_none(self) -> Any | None:
         if self._client is not None:
             return self._client
         pk = os.getenv("LANGFUSE_PUBLIC_KEY")
@@ -89,6 +90,7 @@ class PromptLoader:
             return None
         try:
             from langfuse import Langfuse
+
             self._client = Langfuse(
                 public_key=pk,
                 secret_key=sk,
@@ -101,7 +103,7 @@ class PromptLoader:
     def get(
         self,
         name: str,
-        fallback: Dict[str, Any],
+        fallback: dict[str, Any],
         label: str = "production",
         cache_ttl: int = 300,
     ) -> PromptResult:
@@ -134,10 +136,22 @@ class PromptLoader:
         except Exception as exc:
             exc_str = str(exc).lower()
             if "not found" in exc_str or "404" in exc_str:
-                log.warning("Prompt '%s' (label=%s) not found in Langfuse — using YAML fallback", name, label)
+                log.warning(
+                    "Prompt '%s' (label=%s) not found in Langfuse — using YAML fallback",
+                    name,
+                    label,
+                )
             elif "auth" in exc_str or "401" in exc_str or "403" in exc_str:
-                log.error("Langfuse auth failure fetching prompt '%s' — check API keys", name, exc_info=True)
+                log.error(
+                    "Langfuse auth failure fetching prompt '%s' — check API keys",
+                    name,
+                    exc_info=True,
+                )
             else:
-                log.warning("Langfuse unreachable fetching prompt '%s' — using YAML fallback", name, exc_info=True)
+                log.warning(
+                    "Langfuse unreachable fetching prompt '%s' — using YAML fallback",
+                    name,
+                    exc_info=True,
+                )
 
         return PromptResult(config=dict(fallback), version="fallback", name=name, label=label)

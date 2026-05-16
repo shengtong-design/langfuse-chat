@@ -9,8 +9,9 @@ Wire to a Crew like this:
 get_crew_kwargs() is a no-op when obs is a plain ConnectorManager, so the crew
 files don't need to branch on whether the addon is active.
 """
+
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from core.observability.span_limits import (
     AGENT_ROLE,
@@ -33,7 +34,7 @@ def _clean_thought(raw: str) -> tuple[str, bool]:
     return cleaned, is_failure
 
 
-def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
+def _parse_step(step: Any) -> tuple[dict, dict | None]:
     """Extract structured input/output from a CrewAI AgentAction or AgentFinish."""
     type_name = type(step).__name__
 
@@ -44,7 +45,7 @@ def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
         if isinstance(raw_output, dict):
             raw_output = raw_output.get("output", str(raw_output))
         input_data = {} if is_parse_failure else {"thought": thought}
-        output: Dict[str, Any] = {"result": str(raw_output)[:RESULT]}
+        output: dict[str, Any] = {"result": str(raw_output)[:RESULT]}
         if is_parse_failure:
             output["parse_warning"] = "crewai_failed_to_parse_llm_response"
         return input_data, output
@@ -66,6 +67,7 @@ def _parse_step(step: Any) -> Tuple[Dict, Optional[Dict]]:
 
 class _StepCallback:
     """Callable wrapper so Pydantic sees a serialisable type, not a bound method."""
+
     def __init__(self, obs: Any) -> None:
         self._obs = obs
 
@@ -81,6 +83,7 @@ class _StepCallback:
 
 class _TaskCallback:
     """Callable wrapper so Pydantic sees a serialisable type, not a bound method."""
+
     def __init__(self, obs: Any) -> None:
         self._obs = obs
 
@@ -90,7 +93,8 @@ class _TaskCallback:
             description = str(getattr(task_output, "description", ""))[:TASK_DESCRIPTION]
             agent_role = str(getattr(task_output, "agent", ""))[:AGENT_ROLE]
             with self._obs.span(
-                "task.complete", "span",
+                "task.complete",
+                "span",
                 input_data={"description": description, "agent": agent_role},
             ) as h:
                 h.set_output({"result": result_str})

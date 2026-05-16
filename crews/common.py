@@ -1,8 +1,9 @@
 """Shared utilities for crew execution."""
+
 import contextlib
 import io
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -10,8 +11,8 @@ log = logging.getLogger(__name__)
 def kickoff_crew(
     crew: Any,
     obs: Any,
-    input_data: Optional[Dict[str, Any]] = None,
-) -> Tuple[Any, str, str]:
+    input_data: dict[str, Any] | None = None,
+) -> tuple[Any, str, str]:
     """Run crew.kickoff(inputs=...) inside a span with captured stdout/stderr.
 
     Returns (CrewOutput, stdout, stderr). Raises on failure after updating the
@@ -37,13 +38,12 @@ def kickoff_crew(
 def extract_question(input_item: Any) -> str:
     """Normalise a Langfuse dataset item input to a plain question string."""
     if isinstance(input_item, dict):
-        value = (
-            input_item.get("question")
-            or input_item.get("query")
-            or input_item.get("input")
-        )
+        value = input_item.get("question") or input_item.get("query") or input_item.get("input")
         if value is None:
-            log.warning("extract_question: no 'question'/'query'/'input' key found; serialising dict %r", input_item)
+            log.warning(
+                "extract_question: no 'question'/'query'/'input' key found; serialising dict %r",
+                input_item,
+            )
             return str(input_item)
         return str(value)
     return str(input_item)

@@ -1,5 +1,3 @@
-from typing import List
-
 from .base import BaseCrew
 
 
@@ -11,9 +9,9 @@ class ResearchCrew(BaseCrew):
         return "crewai.researcher"
 
     @property
-    def _agent_yaml_names(self) -> List[str]:
+    def _agent_yaml_names(self) -> list[str]:
         return ["researcher.yaml"]
 
     @property
-    def _task_yaml_names(self) -> List[str]:
+    def _task_yaml_names(self) -> list[str]:
         return ["research_task.yaml"]

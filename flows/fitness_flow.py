@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, ClassVar, Dict
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from crewai.flow.flow import Flow, start
 from pydantic import BaseModel, Field
@@ -17,7 +18,7 @@ class FitnessState(BaseModel):
     limitations: str = "None specified"
     health_report_path: str = ""
     result: str = ""
-    prompt_versions: Dict[str, str] = Field(default_factory=dict)
+    prompt_versions: dict[str, str] = Field(default_factory=dict)
     stdout: str = ""
     stderr: str = ""
 
@@ -54,7 +55,7 @@ class FitnessFlow(Flow[FitnessState]):
         self._connectors_factory = connectors_factory
 
     @start()
-    def run_fitness_plan(self) -> Dict[str, Any]:
+    def run_fitness_plan(self) -> dict[str, Any]:
         try:
             from core.observability.context import EnrichedConnectorManager, make_run_context
             from crews.fitness_crew import FitnessCrew

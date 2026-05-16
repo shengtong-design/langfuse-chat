@@ -12,6 +12,7 @@ Exit codes:
   1  YAML key validation failed (bare-key invariant breach in crews.base)
   2  unexpected error (missing dir, malformed YAML)
 """
+
 from __future__ import annotations
 
 import sys

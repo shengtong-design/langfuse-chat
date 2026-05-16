@@ -1,11 +1,12 @@
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any
 
 from .base import BaseConnector, SpanHandle
 
 
 class MultiSpanHandle(SpanHandle):
-    def __init__(self, handles: List[SpanHandle]) -> None:
+    def __init__(self, handles: list[SpanHandle]) -> None:
         self._handles = handles
 
     def set_output(self, output: Any) -> None:
@@ -24,7 +25,7 @@ class ConnectorManager:
     BaseConnector, then pass an instance to ConnectorManager in crew_app.py.
     """
 
-    def __init__(self, connectors: List[BaseConnector]) -> None:
+    def __init__(self, connectors: list[BaseConnector]) -> None:
         self._connectors = [c for c in connectors if c.enabled]
 
     @contextmanager
@@ -32,8 +33,8 @@ class ConnectorManager:
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Iterator[MultiSpanHandle]:
         with ExitStack() as stack:
             handles = [

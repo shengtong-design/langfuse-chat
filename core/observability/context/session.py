@@ -4,9 +4,10 @@ Session ID is scoped to the Streamlit browser tab (persists across reruns for
 the same tab). Environment metadata is loaded from config/environments/<env>.yaml
 and falls back to env vars when the file is missing.
 """
+
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from uuid import uuid4
 
 import yaml
@@ -15,7 +16,7 @@ from .run_context import RunContext
 
 _CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config" / "environments"
 _VERSION_FILE = Path(__file__).parent.parent.parent.parent / "VERSION"
-_ENV_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
+_ENV_CONFIG_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _read_app_version() -> str:
@@ -25,7 +26,7 @@ def _read_app_version() -> str:
         return os.getenv("APP_VERSION", "0.0.0")
 
 
-def _load_env_config(environment: str) -> Dict[str, Any]:
+def _load_env_config(environment: str) -> dict[str, Any]:
     if environment not in _ENV_CONFIG_CACHE:
         config_file = _CONFIG_DIR / f"{environment}.yaml"
         _ENV_CONFIG_CACHE[environment] = (
@@ -37,6 +38,7 @@ def _load_env_config(environment: str) -> Dict[str, Any]:
 def _streamlit_session_id() -> str:
     try:
         import streamlit as st
+
         if "obs_session_id" not in st.session_state:
             st.session_state.obs_session_id = str(uuid4())
         return st.session_state.obs_session_id
@@ -71,6 +73,9 @@ def make_run_context(
 
     session_id = _streamlit_session_id()
     user_id = os.getenv("USER_ID", "") or session_id
+    # TODO mypy: env_cfg.get(...) returns Any|None; the chain guarantees a str
+    # at runtime, but mypy doesn't narrow. Tighten in repo-layout-reconciliation.
+    deployment_sha: str = env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", "")  # type: ignore[assignment]
 
     return RunContext(
         session_id=session_id,
@@ -82,6 +87,7 @@ def make_run_context(
         flow_name=flow_name,
         crew_version=crew_version,
         flow_version=flow_version,
-        deployment_sha=env_cfg.get("deployment_sha") or os.getenv("DEPLOYMENT_SHA", ""),
-        model_version=env_cfg.get("model_defaults", {}).get("default", "") or os.getenv("MODEL_VERSION", ""),
+        deployment_sha=deployment_sha,
+        model_version=env_cfg.get("model_defaults", {}).get("default", "")
+        or os.getenv("MODEL_VERSION", ""),
     )

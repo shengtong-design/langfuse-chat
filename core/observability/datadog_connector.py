@@ -1,7 +1,8 @@
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional
+from typing import Any
 
 from .base import BaseConnector, NullSpanHandle, SpanHandle
 
@@ -18,7 +19,7 @@ _TYPE_TO_DD = {
 
 class DatadogSpanHandle(SpanHandle):
     def __init__(self) -> None:
-        self._output: Optional[Any] = None
+        self._output: Any | None = None
         self._error: bool = False
 
     def set_output(self, output: Any) -> None:
@@ -34,7 +35,7 @@ class DatadogConnector(BaseConnector):
 
     def __init__(self, active: bool) -> None:
         self._active = active
-        self._run_ctx: Optional[Any] = None
+        self._run_ctx: Any | None = None
 
     def update_run_context(self, context: Any) -> None:
         self._run_ctx = context
@@ -48,8 +49,8 @@ class DatadogConnector(BaseConnector):
         self,
         name: str,
         span_type: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Iterator[SpanHandle]:
         if not self._active:
             yield NullSpanHandle()
@@ -57,6 +58,7 @@ class DatadogConnector(BaseConnector):
 
         try:
             from ddtrace.llmobs import LLMObs
+
             dd_type = _TYPE_TO_DD.get(span_type, "task")
             method = getattr(LLMObs, dd_type, None)
         except (ModuleNotFoundError, AttributeError):
@@ -69,11 +71,10 @@ class DatadogConnector(BaseConnector):
             yield NullSpanHandle()
             return
 
-        span_kwargs: Dict[str, Any] = {"name": name}
-        session_id = (
-            (self._run_ctx.session_id if self._run_ctx else "")
-            or os.getenv("DD_LLMOBS_SESSION_ID", "").strip()
-        )
+        span_kwargs: dict[str, Any] = {"name": name}
+        session_id = (self._run_ctx.session_id if self._run_ctx else "") or os.getenv(
+            "DD_LLMOBS_SESSION_ID", ""
+        ).strip()
         if session_id:
             span_kwargs["session_id"] = session_id
 
@@ -84,7 +85,7 @@ class DatadogConnector(BaseConnector):
                 # Merge RunContext into metadata so all fields appear in span detail view.
                 # Tags are set separately for Datadog filtering/grouping.
                 merged_metadata.update(self._run_ctx.as_metadata())
-            annotate_kwargs: Dict[str, Any] = {"metadata": merged_metadata}
+            annotate_kwargs: dict[str, Any] = {"metadata": merged_metadata}
             if input_data:
                 annotate_kwargs["input_data"] = input_data
             if self._run_ctx is not None:
@@ -105,6 +106,7 @@ class DatadogConnector(BaseConnector):
             return
         try:
             from ddtrace.llmobs import LLMObs
+
             LLMObs.flush()
         except Exception:
             log.warning("Datadog LLMObs flush failed", exc_info=True)
