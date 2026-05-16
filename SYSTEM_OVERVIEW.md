@@ -189,9 +189,22 @@ langfuse-chat/
 │
 ├── scripts/                     ← One-off CLIs (NOT part of the app runtime)
 │   ├── bootstrap.py             ← sys.path / .env / logging setup for CLI scripts
+│   ├── list_prompt_keys.py      ← Audit prompt keys in Langfuse
 │   ├── seed_prompts.py          ← Walk agents/+tasks/; create v1 production prompts
-│   ├── run_experiment.py        ← Run ResearchFlow against a Langfuse dataset
 │   └── md_to_html.py            ← Render SYSTEM_OVERVIEW.md → self-contained HTML
+│
+├── evalops/                     ← EvalOps: Langfuse-driven eval runner around CrewAI flows
+│   ├── runners/cli.py           ← Headless runner (replaces former scripts/run_experiment.py)
+│   ├── runners/streamlit_tab.py ← UI tab (Phase 4)
+│   ├── manifest.py              ← ExperimentManifest dataclass + JSON serialization
+│   ├── dataset_loader.py        ← Langfuse dataset → typed iterable
+│   ├── crew_runner.py           ← Flow execution adapter
+│   ├── scorer.py                ← Fetch + aggregate Langfuse LLM-as-a-Judge scores
+│   ├── reporter.py              ← Markdown report renderer (sections 1–12)
+│   ├── promotion_gate.py        ← PROMOTE / DO NOT PROMOTE / NEEDS HUMAN REVIEW
+│   ├── metric_config.py         ← Loads config/evalops/thresholds.yaml
+│   ├── manifests/               ← Run manifests (gitignored)
+│   └── reports/                 ← Generated reports (gitignored)
 │
 ├── .agents/README.md            ← AI-coding-agent skill packs (gitignored content)
 ├── skills-lock.json             ← Tracked: pins skill packs by source + hash
@@ -1153,11 +1166,19 @@ In the **Experiments** tab:
 
 Results land in **Langfuse → Datasets → `<dataset>` → Experiments**.
 
-Headless alternative:
+Headless alternative (EvalOps CLI):
 
 ```bash
-py -3.12 scripts/run_experiment.py
+py -3.12 -m evalops.runners.cli \
+    --dataset crew-research-eval \
+    --crew researcher \
+    --prompt-label production
 ```
+
+Generates a local Markdown report at `evalops/reports/{experiment_name}.md`
+with sections 1–12 (aggregate scores, per-item table, failure examples,
+promotion recommendation). See `evalops/README.md` and
+`config/evalops/thresholds.yaml` for direction/threshold config.
 
 ### 9.4 Read traces in Langfuse
 
