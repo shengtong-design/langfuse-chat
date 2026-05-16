@@ -76,7 +76,7 @@ def _render_download_panel(result: PipelineResult) -> None:
 
 def render() -> None:
     st.caption(
-        "Run an EvalOps experiment: dataset + crew + prompt label → "
+        "Run an EvalOps experiment: dataset + flow + prompt label → "
         "Langfuse LLM-as-a-Judge scores → local Markdown report."
     )
 
@@ -95,7 +95,7 @@ def render() -> None:
         col1, col2 = st.columns(2)
         with col1:
             dataset = st.text_input("Dataset name", value="crew-research-eval")
-            crew = st.selectbox("Crew", ["researcher"], index=0)
+            flow = st.selectbox("Flow", ["researcher"], index=0)
             prompt_label = st.selectbox(
                 "Prompt label",
                 ["production", "staging", "candidate"],
@@ -124,7 +124,7 @@ def render() -> None:
 
         cfg = PipelineConfig(
             dataset=dataset.strip(),
-            crew=crew,
+            crew=flow,
             prompt_label=prompt_label,
             metrics=list(metrics),
             wait_seconds=int(wait_seconds),
@@ -134,7 +134,8 @@ def render() -> None:
         try:
             st.session_state.evalops_running = True
             with st.spinner(
-                f"Running '{cfg.dataset}' on {cfg.crew} (wait {cfg.wait_seconds}s for judges)..."
+                f"Running flow '{cfg.crew}' on dataset '{cfg.dataset}' "
+                f"(wait {cfg.wait_seconds}s for judges)..."
             ):
                 result = run_pipeline(cfg)
             st.session_state["evalops_last_result"] = result
