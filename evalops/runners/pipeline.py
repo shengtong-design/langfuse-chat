@@ -25,6 +25,7 @@ from evalops.crew_runner import get_flow_class, make_task
 from evalops.dataset_loader import load_dataset_items
 from evalops.manifest import CrewRef, DatasetRef, ExperimentManifest, FlowRef
 from evalops.reporter import generate_report
+from evalops.flow_introspect import introspect_flow
 from evalops.regression import compare as compare_regression, find_baseline
 from evalops.scorer import aggregate, build_trace_labels, wait_then_fetch
 
@@ -127,6 +128,8 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     baseline = find_baseline(manifests_dir, manifest)
     regression = compare_regression(manifest, baseline) if baseline else None
 
+    flow_graph = introspect_flow(flow_cls)
+
     manifest_path = manifest.save(manifests_dir)
     report_path = generate_report(
         manifest,
@@ -134,6 +137,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         _PROJECT_ROOT / "evalops" / "reports",
         trace_labels=trace_labels,
         regression=regression,
+        flow_graph=flow_graph,
     )
 
     return PipelineResult(

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evalops.flow_introspect import FlowGraph, render_mermaid, render_text_tree
 from evalops.manifest import ExperimentManifest
 from evalops.metric_config import (
     DIRECTION_HIGHER,
@@ -33,17 +34,20 @@ def generate_report(
     reports_dir: Path,
     trace_labels: dict[str, str] | None = None,
     regression: RegressionReport | None = None,
+    flow_graph: FlowGraph | None = None,
 ) -> Path:
     """Render a Markdown report for the run; return the written file path.
 
     `trace_labels` (optional) maps trace_id -> human-readable label.
     `regression` (optional) is the comparison vs the most recent prior
     production run for the same crew + dataset — drives Section 10.
+    `flow_graph` (optional) is the static Flow → Crew → Agents/Tasks
+    description — drives Section 4 (Flow architecture).
     """
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"{manifest.experiment_name}.md"
     path.write_text(
-        _render(manifest, scores, trace_labels or {}, regression),
+        _render(manifest, scores, trace_labels or {}, regression, flow_graph),
         encoding="utf-8",
     )
     return path
@@ -54,6 +58,7 @@ def _render(
     scores: list[dict[str, Any]],
     trace_labels: dict[str, str],
     regression: RegressionReport | None,
+    flow_graph: FlowGraph | None,
 ) -> str:
     aggregates = aggregate(scores)
     by_trace = group_by_trace(scores)
@@ -67,7 +72,7 @@ def _render(
     parts.append(_section_1_summary(aggregates, manifest))
     parts.append(_section_2_config(manifest))
     parts.append(_section_3_dataset(manifest))
-    parts.append(_section_4_crew(manifest))
+    parts.append(_section_4_flow_architecture(manifest, flow_graph))
     parts.append(_section_5_prompts(manifest))
     parts.append(_section_6_metric_defs(aggregates))
     parts.append(_section_7_aggregates(aggregates))
@@ -135,14 +140,36 @@ def _section_3_dataset(manifest: ExperimentManifest) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _section_4_crew(manifest: ExperimentManifest) -> str:
-    lines = ["## 4. Crew scope\n"]
+def _section_4_flow_architecture(
+    manifest: ExperimentManifest,
+    flow_graph: FlowGraph | None,
+) -> str:
+    lines = ["## 4. Flow architecture\n"]
     if manifest.crew:
-        lines.append(f"- Crew: `{manifest.crew.name}` (version `{manifest.crew.version or '(n/a)'}`)")
+        lines.append(f"- Crew: `{manifest.crew.name}` (crew_version `{manifest.crew.version or '(n/a)'}`)")
     if manifest.flow:
-        lines.append(f"- Flow: `{manifest.flow.name}` (version `{manifest.flow.version or '(n/a)'}`)")
+        lines.append(f"- Flow: `{manifest.flow.name}` (flow_version `{manifest.flow.version or '(n/a)'}`)")
     if not manifest.crew and not manifest.flow:
         lines.append("- _no crew/flow captured_")
+
+    if flow_graph is None:
+        lines.append("\n_Flow introspection not available for this run._")
+        return "\n".join(lines) + "\n"
+
+    lines.append("\n### Mermaid diagram\n")
+    lines.append("```mermaid")
+    lines.append(render_mermaid(flow_graph))
+    lines.append("```\n")
+
+    lines.append("### Structure\n")
+    lines.append("```")
+    lines.append(render_text_tree(flow_graph))
+    lines.append("```")
+
+    if flow_graph.notes:
+        lines.append("\n_Introspection notes:_")
+        for n in flow_graph.notes:
+            lines.append(f"- {n}")
     return "\n".join(lines) + "\n"
 
 
